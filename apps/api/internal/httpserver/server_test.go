@@ -15,8 +15,10 @@ import (
 	"e2e-sentinel/apps/api/internal/graph"
 	"e2e-sentinel/apps/api/internal/planning"
 	"e2e-sentinel/apps/api/internal/projects"
+	"e2e-sentinel/apps/api/internal/providers"
 	"e2e-sentinel/apps/api/internal/runs"
 	"e2e-sentinel/apps/api/internal/services"
+	"e2e-sentinel/apps/api/internal/settings"
 )
 
 type fakePinger struct{ err error }
@@ -25,19 +27,23 @@ func (f fakePinger) Ping(ctx context.Context) error { return f.err }
 
 func newTestDeps(pgErr, redisErr error) Dependencies {
 	return Dependencies{
-		Postgres:     fakePinger{err: pgErr},
-		Redis:        fakePinger{err: redisErr},
-		Audit:        audit.NewMemoryRecorder(),
-		Projects:     projects.NewMemoryStore(),
-		Environments: environments.NewMemoryStore(),
-		Discovery:    discovery.NewMemoryStore(),
-		Services:     services.NewMemoryStore(),
-		Graph:        graph.NewMemoryStore(),
-		Planning:     planning.NewMemoryStore(),
-		Runs:         runs.NewMemoryStore(),
-		Artifacts:    artifacts.NewMemoryStore(),
-		Docker:       nil, // no Docker daemon in unit tests; must degrade gracefully
-		Runner:       nil, // no runner configured by default; see fakeRunner in runs_handlers_test.go
+		Postgres:       fakePinger{err: pgErr},
+		Redis:          fakePinger{err: redisErr},
+		Audit:          audit.NewMemoryRecorder(),
+		Projects:       projects.NewMemoryStore(),
+		Environments:   environments.NewMemoryStore(),
+		Discovery:      discovery.NewMemoryStore(),
+		Services:       services.NewMemoryStore(),
+		Graph:          graph.NewMemoryStore(),
+		Planning:       planning.NewMemoryStore(),
+		Runs:           runs.NewMemoryStore(),
+		Artifacts:      artifacts.NewMemoryStore(),
+		Providers:      providers.NewMemoryStore(),
+		Settings:       settings.NewMemoryStore(),
+		ProviderHealth: providers.NewHealthChecker(nil),
+		Docker:         nil, // no Docker daemon in unit tests; must degrade gracefully
+		Runner:         nil, // no runner configured by default; see fakeRunner in runs_handlers_test.go
+		Secrets:        nil, // no encryption key configured by default; see providers_handlers_test.go
 	}
 }
 

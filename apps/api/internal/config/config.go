@@ -78,6 +78,18 @@ type Config struct {
 	// (stdout/stderr/screenshots/videos/traces) on the local filesystem
 	// (spec §4.1 MVP storage backend).
 	ArtifactsDir string
+
+	// SecretEncryptionKey encrypts AI provider API keys at rest (spec
+	// §16.3, §23.6). Required (no default) whenever AI providers are
+	// configured; every other feature works without it. Must decode
+	// (base64 standard encoding) to exactly secretstore.KeySize bytes —
+	// generate one with `openssl rand -base64 32`.
+	SecretEncryptionKey string
+
+	// OllamaAutoDetectURL is the conventional local Ollama endpoint
+	// probed by the auto-detect helper (spec §16.2). Never scanned
+	// automatically on startup — only on an explicit user request.
+	OllamaAutoDetectURL string
 }
 
 // Load reads configuration from environment variables and validates it.
@@ -103,6 +115,8 @@ func Load(getenv func(string) string) (Config, error) {
 		RunnerNanoCPUs:              1_000_000_000,
 		RunnerTimeout:               2 * time.Minute,
 		ArtifactsDir:                firstNonEmpty(getenv("SENTINEL_ARTIFACTS_DIR"), "/data/artifacts"),
+		SecretEncryptionKey:         strings.TrimSpace(getenv("SENTINEL_SECRET_ENCRYPTION_KEY")),
+		OllamaAutoDetectURL:         firstNonEmpty(getenv("SENTINEL_OLLAMA_AUTODETECT_URL"), "http://host.docker.internal:11434"),
 	}
 
 	if raw := getenv("SENTINEL_SHUTDOWN_TIMEOUT_SECONDS"); raw != "" {

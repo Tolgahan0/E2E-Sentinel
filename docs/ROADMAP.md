@@ -12,7 +12,7 @@ previous one's acceptance criteria are demonstrated (spec §33).
 | 3 | Application Graph | **Done** |
 | 4 | Test Planning | **Done** |
 | 5 | Playwright Runner | **Done** |
-| 6 | AI Providers | Not started |
+| 6 | AI Providers | **Done** |
 | 7 | Failure Analysis & Bug Reports | Not started |
 | 8 | Fix Proposals | Not started |
 | 9 | Production Hardening | Not started |
@@ -229,9 +229,66 @@ covered by both a live check (409 on an already-finished run) and a
 unit test with a controllable blocking fake runner; the target
 repository was never written to.
 
-## Next: Phase 6 — AI Providers
+## Phase 6 — AI Providers (done)
 
-Per spec §25 Phase 6: Ollama, OpenAI, Anthropic, Gemini, Azure OpenAI,
-OpenAI-compatible provider, provider health test, secret encryption,
-redaction pipeline, task routing. AI remains advisory only (spec §2.4) —
-pass/fail continues to come from Phase 5's runner exit codes, never AI.
+- `internal/providers`: `Provider` entity (spec §6.11) covering all six
+  supported types (Ollama, OpenAI, Anthropic, Gemini, Azure OpenAI,
+  OpenAI-compatible). `HealthChecker` performs a real "test connection"
+  request per type against each provider's own "list models"-style
+  endpoint (`/api/tags` for Ollama, `/models` for OpenAI/compatible,
+  `/v1/models` for Anthropic, etc.) — the smallest request that proves
+  both reachability and that a stored key is accepted, without sending
+  any repository or test content.
+- `internal/secretstore`: AES-256-GCM encryption for provider API keys
+  (spec §16.3, §23.6). A key is never stored, logged, or returned through
+  the API — only an opaque `secret_reference_id`; `Resolve` is called
+  exclusively by server-side code about to make an outbound provider
+  request (or a health check), never by a response path. The encryption
+  key itself (`SENTINEL_SECRET_ENCRYPTION_KEY`) is optional — unset means
+  a provider can still be configured and tested if it needs no key (a
+  local Ollama instance), but storing a key on any provider returns 503
+  until the key is set.
+- `internal/redaction`: the context-sanitization pipeline (spec §16.5) —
+  detects and redacts secrets, tokens (JWTs, bearer tokens), credentials
+  (passwords, URL-embedded `user:pass@`), `Authorization`/`Cookie`
+  headers, plus a path allowlist and file-size-limit helper for later
+  phases that assemble AI context from repository files. Distinct from
+  the pre-existing `internal/logging.Redact` (which redacts a *log field*
+  by name) — this scans free-form text content regardless of where a
+  secret appears in it.
+- `internal/settings`: a small generic key/value store (spec's data model
+  §19 `settings` table) — first consumer is `ai.task_routing`, a JSON map
+  of task type -> provider ID (spec §16.4: architecture analysis, test
+  planning, test generation, failure analysis, fix generation, report
+  summarization).
+- API: `GET/POST /providers`, `PATCH /providers/{id}` (including API key
+  rotation and clearing), `POST /providers/{id}/test`,
+  `GET/PATCH /providers/routing`. Web: functional AI Providers page (add/
+  list/enable-disable/test-connection + task routing table); no longer a
+  stub.
+- **No phase yet makes an actual AI call** — Phase 6 delivers
+  configuration, health checking, and routing only, per spec's own phase
+  order (failure analysis and fix generation, the first real AI
+  consumers, are Phases 7–8). The application remains fully usable with
+  zero providers configured, which is the literal Phase 6 acceptance
+  criterion ("AI can be disabled entirely") and was true before this
+  phase started, since nothing before Phase 7 depends on AI.
+
+Acceptance criteria (spec) — verified: a local Ollama provider can be
+added and selected with no API key at all; an external provider (OpenAI-
+shaped) can be configured with a key; every provider list/get/patch/test
+response was checked to confirm the raw key and `secret_reference_id`
+never appear, only a `has_api_key` boolean; the redaction test suite
+passes (96.7% coverage) proving secrets/tokens/credentials/auth headers/
+cookies never survive into redacted output while ordinary text is left
+byte-for-byte unchanged; AI remains fully optional — `go test ./...`
+passes with `SENTINEL_SECRET_ENCRYPTION_KEY` unset.
+
+## Next: Phase 7 — Failure Analysis and Bug Reports
+
+Per spec §25 Phase 7: failure classification, evidence correlation,
+structured bug reports, Markdown/JSON export, duplicate hints, severity
+model. This is the first phase that would route through
+`internal/providers`' task routing to call an AI provider — always
+advisory (spec §2.4), and root cause must be presented as a hypothesis,
+never a fact.

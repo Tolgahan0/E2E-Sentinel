@@ -74,6 +74,11 @@ services:
       # Docker), so bind-mount sources must be given as HOST paths — see
       # docs/RUNNER_ISOLATION.md. `make up` computes and passes this.
       SENTINEL_RUNNER_HOST_WORKSPACE_DIR: ${SENTINEL_RUNNER_HOST_WORKSPACE_DIR:?run via 'make up', which sets this to an absolute host path}
+      # Phase 6 AI providers: optional. Unset means provider API keys
+      # cannot be stored, but every other feature (including configuring
+      # a keyless local Ollama provider) still works — spec §16.6
+      # "No-AI Mode". Generate with `openssl rand -base64 32`.
+      SENTINEL_SECRET_ENCRYPTION_KEY: ${SENTINEL_SECRET_ENCRYPTION_KEY:-}
     volumes:
       - ./migrations:/app/migrations:ro
       # Target repositories to discover/test must be reachable inside this

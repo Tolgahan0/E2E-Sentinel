@@ -60,6 +60,11 @@ See `.env.example` for the full list. Notably:
 - `SENTINEL_DOCKER_GID` — only needed on a Linux host with rootful Docker,
   where the socket is typically `root:docker` rather than Docker
   Desktop's `root:root`; set it to that group's real GID.
+- `SENTINEL_SECRET_ENCRYPTION_KEY` — optional (spec §16.6 "No-AI Mode").
+  Unset means AI provider API keys can't be stored, but every other
+  feature — including a keyless local Ollama provider — still works.
+  Generate with `openssl rand -base64 32`; see
+  [docs/AI_PROVIDER_GUIDE.md](AI_PROVIDER_GUIDE.md).
 
 ## Integration tests
 

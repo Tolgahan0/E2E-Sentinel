@@ -20,8 +20,11 @@ import (
 	"e2e-sentinel/apps/api/internal/graph"
 	"e2e-sentinel/apps/api/internal/planning"
 	"e2e-sentinel/apps/api/internal/projects"
+	"e2e-sentinel/apps/api/internal/providers"
 	"e2e-sentinel/apps/api/internal/runs"
+	"e2e-sentinel/apps/api/internal/secretstore"
 	"e2e-sentinel/apps/api/internal/services"
+	"e2e-sentinel/apps/api/internal/settings"
 )
 
 // Pinger checks connectivity to a dependency. Implemented by thin adapters
@@ -45,6 +48,11 @@ type Dependencies struct {
 	Planning     planning.Store
 	Runs         runs.Store
 	Artifacts    artifacts.Store
+	Providers    providers.Store
+	Settings     settings.Store
+	// ProviderHealth performs the live "test connection" check (spec
+	// §16.3). Always set — building it needs no credentials of its own.
+	ProviderHealth *providers.HealthChecker
 	// Docker is optional: nil means "no Docker integration configured",
 	// handled the same as an unreachable daemon (spec §25 Phase 2).
 	Docker DockerLister
@@ -52,7 +60,12 @@ type Dependencies struct {
 	// (SENTINEL_RUNNER_HOST_WORKSPACE_DIR unset) — every other feature
 	// works fine without it; POST /tests/{id}/run returns 503.
 	Runner runs.Runner
-	Logger zerolog.Logger
+	// Secrets is optional: nil means "no encryption key configured"
+	// (SENTINEL_SECRET_ENCRYPTION_KEY unset) — every feature except
+	// storing a provider API key works fine without it, per spec §16.6
+	// "No-AI Mode".
+	Secrets secretstore.Store
+	Logger  zerolog.Logger
 }
 
 // NewRouter builds the chi router for the API.
@@ -101,6 +114,17 @@ func NewRouter(deps Dependencies) http.Handler {
 		})
 
 		r.Get("/artifacts/{artifactID}/content", handleGetArtifactContent(deps))
+
+		r.Route("/providers", func(r chi.Router) {
+			r.Get("/", handleListProviders(deps))
+			r.Post("/", handleCreateProvider(deps))
+			r.Get("/routing", handleGetTaskRouting(deps))
+			r.Patch("/routing", handleUpdateTaskRouting(deps))
+			r.Route("/{providerID}", func(r chi.Router) {
+				r.Patch("/", handlePatchProvider(deps))
+				r.Post("/test", handleTestProviderConnection(deps))
+			})
+		})
 	})
 
 	return r

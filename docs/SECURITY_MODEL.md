@@ -6,7 +6,7 @@ and §23 for the full target model; this file states what's true *today*.
 [docs/THREAT_MODEL.md](THREAT_MODEL.md) covers threat areas in more depth
 as each phase introduces the surface they apply to.
 
-## Current state (Phases 0–5)
+## Current state (Phases 0–6)
 
 - **Target-repository access is read-only and path-validated.**
   `internal/projects.ValidateRepositoryPath` resolves the caller-supplied
@@ -66,8 +66,27 @@ as each phase introduces the surface they apply to.
   or `unknown` (spec §2.6) — enforced server-side regardless of what
   client makes the request, and covered by both a unit and an
   integration test against a live API.
-- **No AI provider access.** No outbound calls to any LLM provider exist
-  yet.
+- **AI provider API keys are encrypted at rest and never returned.**
+  `internal/secretstore` encrypts every stored key with AES-256-GCM
+  (`SENTINEL_SECRET_ENCRYPTION_KEY`, optional — unset means keyed
+  providers can't be created, but keyless ones like local Ollama still
+  work). `internal/providers` stores only an opaque
+  `secret_reference_id`; every `GET`/`POST`/`PATCH /providers*` response
+  is built through `toProviderResponse`, which has no field for the raw
+  key or that reference ID — only a `has_api_key` boolean, verified by
+  dedicated tests asserting the literal key value never appears in a
+  response body. The plaintext key is resolved only server-side,
+  immediately before an outbound health-check or (in a later phase) AI
+  request — never on a path that returns to an HTTP client.
+- **No actual AI call exists yet.** Phase 6 delivers provider
+  configuration, a live "test connection" health check, and task
+  routing only — no phase before 7 sends any content to an AI provider.
+  `internal/redaction` (the pipeline required before that will ever
+  happen, spec §16.5) already exists and is independently tested:
+  secrets, tokens, credentials, `Authorization`/`Cookie` headers are
+  detected and redacted from arbitrary text, with a path allowlist and
+  file-size limit as building blocks for whichever later phase first
+  assembles real AI context.
 - **Secrets.** `POSTGRES_PASSWORD` has no default and must be supplied via
   `.env` (gitignored) or the deployment's secret mechanism. It is never
   logged: `internal/logging.SensitiveFieldName`/`Redact` exist so future
@@ -87,13 +106,15 @@ as each phase introduces the surface they apply to.
 
 ## Not yet implemented
 
-Authentication/RBAC, approval workflow enforcement for patches, secret
-redaction pipeline for AI context, Kubernetes discovery sandboxing, and
-patch-application safety all land in the phases that introduce the
-corresponding feature (Phases 6, 8, 9 — see
-[docs/ROADMAP.md](ROADMAP.md)). Until Phase 9, do not expose this
-deployment beyond a trusted local network — this is now more important
-than before Phase 5, given the Docker socket is mounted by default.
+Authentication/RBAC, approval workflow enforcement for patches,
+Kubernetes discovery sandboxing, and patch-application safety all land
+in the phases that introduce the corresponding feature (Phases 8, 9 —
+see [docs/ROADMAP.md](ROADMAP.md)). Until Phase 9, do not expose this
+deployment beyond a trusted local network — this matters more than
+before Phase 5, given the Docker socket is mounted by default, and more
+than before Phase 6 if an AI provider API key is stored (no RBAC yet
+gates who can read `has_api_key`/trigger a health check, even though the
+key itself is never exposed through the API).
 
 ## Reporting a vulnerability
 

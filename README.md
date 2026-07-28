@@ -14,7 +14,7 @@ without explicit approval.
 
 This repository is being built incrementally against
 [`E2E_SENTINEL_CODEX_MASTER_SPEC.md`](E2E_SENTINEL_CODEX_MASTER_SPEC.md).
-**Phases 0–5** are implemented; see [docs/ROADMAP.md](docs/ROADMAP.md)
+**Phases 0–6** are implemented; see [docs/ROADMAP.md](docs/ROADMAP.md)
 for what comes next and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) /
 [ADR 0001](docs/adr/0001-phase0-foundation.md) for the reasoning behind
 the foundational choices.
@@ -61,22 +61,31 @@ the foundational choices.
   after every run, including failures. Cancellation stops the container
   by a deterministic name, so it works even though execution runs in a
   background goroutine.
+- **AI Providers**: configure Ollama, OpenAI, Anthropic, Gemini, Azure
+  OpenAI, or an OpenAI-compatible endpoint; test connectivity live; route
+  individual AI-assisted task types (test planning, failure analysis,
+  fix generation, etc.) to different providers. API keys are encrypted
+  at rest and never returned through the API — only whether one is
+  configured. No phase yet makes an actual AI call; the app is fully
+  usable with zero providers configured (spec §16.6 "No-AI Mode").
 - A Next.js panel (`apps/web`) on port `9090`: Dashboard, Audit Logs,
   Projects, Discovery (findings + services), Application Map, Test
-  Inventory, and Runs are functional; the remaining nav sections are
-  stub pages pointing at the phase that implements them.
+  Inventory, Runs, and AI Providers are functional; the remaining nav
+  sections are stub pages pointing at the phase that implements them.
 - Versioned SQL migrations with a small custom runner.
 - Docker Compose stack: `sentinel-api`, `sentinel-web`, `postgres`,
   `redis`, plus disposable Playwright runner containers launched on
   demand.
 
-Nothing yet talks to Kubernetes, calls an AI provider, or
-writes/commits/pushes code in a *target* repository — those are reserved
-for later phases. Discovery still only *reads* file names/contents to
-classify them. Test execution is the one place E2E Sentinel *does* run
-something (the generated spec, in full isolation) — see
+Nothing yet talks to Kubernetes or writes/commits/pushes code in a
+*target* repository — those are reserved for later phases. Discovery
+still only *reads* file names/contents to classify them. Test execution
+is the one place E2E Sentinel *does* run something (the generated spec,
+in full isolation) — see
 [docs/RUNNER_ISOLATION.md](docs/RUNNER_ISOLATION.md) for exactly what
-that container can and can't do.
+that container can and can't do. See
+[docs/AI_PROVIDER_GUIDE.md](docs/AI_PROVIDER_GUIDE.md) for configuring an
+AI provider.
 
 ## Quick start
 

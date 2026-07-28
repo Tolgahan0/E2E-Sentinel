@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"flag"
 	"net/http"
@@ -23,8 +24,11 @@ import (
 	"e2e-sentinel/apps/api/internal/logging"
 	"e2e-sentinel/apps/api/internal/planning"
 	"e2e-sentinel/apps/api/internal/projects"
+	"e2e-sentinel/apps/api/internal/providers"
 	"e2e-sentinel/apps/api/internal/runs"
+	"e2e-sentinel/apps/api/internal/secretstore"
 	"e2e-sentinel/apps/api/internal/services"
+	"e2e-sentinel/apps/api/internal/settings"
 )
 
 func main() {
@@ -119,21 +123,48 @@ func run(migrateOnly bool) error {
 		logger.Info().Msg("test runner not configured (SENTINEL_RUNNER_HOST_WORKSPACE_DIR unset) — POST /tests/{id}/run will return 503")
 	}
 
+	// AI provider API key storage (Phase 6) is optional: nil until
+	// SENTINEL_SECRET_ENCRYPTION_KEY is configured. Every feature except
+	// storing a provider's API key works fine without it (spec §16.6
+	// "No-AI Mode") — providers can still be configured and tested for
+	// keyless local endpoints like Ollama.
+	var secretStore secretstore.Store
+	if cfg.SecretEncryptionKey != "" {
+		keyBytes, err := base64.StdEncoding.DecodeString(cfg.SecretEncryptionKey)
+		if err != nil {
+			logger.Error().Err(err).Msg("SENTINEL_SECRET_ENCRYPTION_KEY is not valid base64")
+			return err
+		}
+		encryptor, err := secretstore.NewEncryptor(keyBytes)
+		if err != nil {
+			logger.Error().Err(err).Msg("SENTINEL_SECRET_ENCRYPTION_KEY is invalid")
+			return err
+		}
+		secretStore = secretstore.NewPostgresStore(pgPool, encryptor)
+		logger.Info().Msg("secret encryption configured — AI provider API keys can be stored")
+	} else {
+		logger.Info().Msg("secret encryption not configured (SENTINEL_SECRET_ENCRYPTION_KEY unset) — providers requiring an API key cannot be created")
+	}
+
 	router := httpserver.NewRouter(httpserver.Dependencies{
-		Postgres:     httpserver.PostgresPinger{Pool: pgPool},
-		Redis:        httpserver.RedisPinger{Client: redisClient},
-		Audit:        recorder,
-		Projects:     projects.NewPostgresStore(pgPool),
-		Environments: environments.NewPostgresStore(pgPool),
-		Discovery:    discovery.NewPostgresStore(pgPool),
-		Services:     services.NewPostgresStore(pgPool),
-		Graph:        graph.NewPostgresStore(pgPool),
-		Planning:     planning.NewPostgresStore(pgPool),
-		Runs:         runs.NewPostgresStore(pgPool),
-		Artifacts:    artifacts.NewFileStore(pgPool, cfg.ArtifactsDir),
-		Docker:       dockerClient,
-		Runner:       runner,
-		Logger:       logger,
+		Postgres:       httpserver.PostgresPinger{Pool: pgPool},
+		Redis:          httpserver.RedisPinger{Client: redisClient},
+		Audit:          recorder,
+		Projects:       projects.NewPostgresStore(pgPool),
+		Environments:   environments.NewPostgresStore(pgPool),
+		Discovery:      discovery.NewPostgresStore(pgPool),
+		Services:       services.NewPostgresStore(pgPool),
+		Graph:          graph.NewPostgresStore(pgPool),
+		Planning:       planning.NewPostgresStore(pgPool),
+		Runs:           runs.NewPostgresStore(pgPool),
+		Artifacts:      artifacts.NewFileStore(pgPool, cfg.ArtifactsDir),
+		Providers:      providers.NewPostgresStore(pgPool),
+		Settings:       settings.NewPostgresStore(pgPool),
+		ProviderHealth: providers.NewHealthChecker(nil),
+		Docker:         dockerClient,
+		Runner:         runner,
+		Secrets:        secretStore,
+		Logger:         logger,
 	})
 
 	server := &http.Server{

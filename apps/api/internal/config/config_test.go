@@ -73,3 +73,22 @@ func TestLoad_NeverExposesDatabaseURLAsDefault(t *testing.T) {
 		t.Errorf("DatabaseURL was not passed through verbatim: %q", cfg.DatabaseURL)
 	}
 }
+
+func TestLoad_SecretEncryptionKeyIsOptional(t *testing.T) {
+	// AI provider configuration must remain entirely optional (spec §16.6
+	// "No-AI Mode") — the process must start fine with no encryption key
+	// set at all.
+	cfg, err := Load(envMap(map[string]string{
+		"SENTINEL_DATABASE_URL": "postgres://sentinel:secret@localhost:5432/sentinel",
+		"SENTINEL_REDIS_ADDR":   "localhost:6379",
+	}))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.SecretEncryptionKey != "" {
+		t.Errorf("SecretEncryptionKey = %q, want empty by default", cfg.SecretEncryptionKey)
+	}
+	if cfg.OllamaAutoDetectURL != "http://host.docker.internal:11434" {
+		t.Errorf("OllamaAutoDetectURL = %q, want the conventional local default", cfg.OllamaAutoDetectURL)
+	}
+}

@@ -175,6 +175,58 @@ export interface ArtifactsResponse {
   artifacts: RunArtifact[] | null;
 }
 
+export type ProviderType = 'ollama' | 'openai' | 'anthropic' | 'gemini' | 'azure_openai' | 'openai_compatible';
+
+export const PROVIDER_TYPES: { value: ProviderType; label: string }[] = [
+  { value: 'ollama', label: 'Ollama (local)' },
+  { value: 'openai', label: 'OpenAI' },
+  { value: 'anthropic', label: 'Anthropic' },
+  { value: 'gemini', label: 'Google Gemini' },
+  { value: 'azure_openai', label: 'Azure OpenAI' },
+  { value: 'openai_compatible', label: 'OpenAI-compatible endpoint' },
+];
+
+export interface Provider {
+  id: string;
+  type: ProviderType;
+  name: string;
+  base_url: string;
+  model: string;
+  has_api_key: boolean;
+  is_local: boolean;
+  enabled: boolean;
+  capabilities: string[];
+  timeout_seconds: number;
+  max_tokens: number;
+  temperature: number;
+  health_status: 'unknown' | 'ok' | 'error';
+  last_checked_at: string | null;
+}
+
+export interface ProvidersResponse {
+  providers: Provider[] | null;
+}
+
+export interface ProviderTestResult {
+  provider: Provider;
+  status: 'ok' | 'error';
+  message: string;
+  latency_ms: number;
+}
+
+export const AI_TASKS: { value: string; label: string }[] = [
+  { value: 'architecture_analysis', label: 'Architecture analysis' },
+  { value: 'test_planning', label: 'Test planning' },
+  { value: 'test_generation', label: 'Test generation' },
+  { value: 'failure_analysis', label: 'Failure analysis' },
+  { value: 'fix_generation', label: 'Fix generation' },
+  { value: 'report_summarization', label: 'Report summarization' },
+];
+
+export interface TaskRoutingResponse {
+  routes: Record<string, string>;
+}
+
 /**
  * fetchJSON calls a same-origin /api/* route (a server-side Route Handler
  * that proxies to sentinel-api, reading SENTINEL_API_URL at request time)

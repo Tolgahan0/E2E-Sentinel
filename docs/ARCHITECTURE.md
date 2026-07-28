@@ -34,17 +34,22 @@ apps/api (Go, chi router)
   +-- internal/testgen       Deterministic Playwright spec generation
   +-- internal/runs          Runner interface, TestRun tracking
   +-- internal/artifacts     Local-filesystem artifact storage
+  +-- internal/providers     AI provider configuration, health checks, task routing
+  +-- internal/secretstore   AES-256-GCM encryption for provider API keys
+  +-- internal/redaction     Secret/token/credential scrubbing before AI context (no AI call exists yet)
+  +-- internal/settings      Generic key/value store (first use: AI task routing)
   +-- internal/httpserver    HTTP handlers
   |
   +-- PostgreSQL
   +-- Redis
   +-- Docker daemon (required for Phase 5 test execution; optional otherwise)
   +-- disposable Playwright runner containers (Phase 5)
+  +-- AI provider APIs (Phase 6; optional, never required)
 ```
 
-Future phases add sibling packages under `internal/` — `providers/`,
-`failures/`, `fixes/`, `approval/`, `secrets/`, `scheduler/`,
-`telemetry/` — exactly as laid out in spec §5.
+Future phases add sibling packages under `internal/` — `failures/`,
+`fixes/`, `approval/`, `scheduler/`, `telemetry/` — exactly as laid out
+in spec §5.
 
 ## Request flow
 
@@ -167,6 +172,12 @@ an edge's endpoints before they have database IDs.
   per `POST /tests/{id}/run`; artifacts reference their run and store
   metadata only (checksum, MIME type, size, retention window) — bytes
   live on the local filesystem (`internal/artifacts.FileStore`).
+- `secret_references`, `ai_providers`, `settings` — see
+  `migrations/0007_ai_providers.sql`. `secret_references` holds only
+  AES-256-GCM ciphertext + nonce, never plaintext; `ai_providers`
+  references it by ID (`ON DELETE SET NULL`, so deleting a key never
+  cascades into deleting the provider); `settings` is a generic
+  key/value table, first used for `ai.task_routing`.
 
 ## Domain flow: running a test (Phase 5)
 
@@ -203,6 +214,39 @@ POST /runs/{id}/cancel
   -> audit: test_run.cancelled
 ```
 
+## Domain flow: configuring and testing an AI provider (Phase 6)
+
+```text
+POST /providers {type, name, base_url, model, api_key?, is_local, ...}
+  -> if api_key given: secretstore.Store.Create (AES-256-GCM encrypt;
+     requires SENTINEL_SECRET_ENCRYPTION_KEY — 503 otherwise)
+  -> providers.Store.Create (stores only the resulting secret_reference_id,
+     never the plaintext key)
+  -> audit: provider.created
+
+POST /providers/{id}/test
+  -> providers.Store.Get
+  -> if secret_reference_id set: secretstore.Store.Resolve (server-side
+     only — this plaintext is never written to an HTTP response)
+  -> providers.HealthChecker.Check: a type-specific "list models" request
+     (e.g. GET {base_url}/api/tags for Ollama) — no repository or test
+     content is ever sent
+  -> providers.Store.UpdateHealth(status, checked_at)
+  -> audit: provider.tested (status only, never the key or its message
+     if it could contain request internals)
+
+PATCH /providers/routing {routes: {task_type: provider_id}}
+  -> validate each task_type (providers.ValidTask) and provider_id
+     (providers.Store.Get) before writing anything
+  -> settings.Store.Set("ai.task_routing", merged JSON map)
+  -> audit: provider.routing_updated
+```
+
+Every `GET`/`POST`/`PATCH /providers*` response is built through
+`toProviderResponse`, which has no field for the API key or
+`secret_reference_id` — only a `has_api_key` boolean. There is no code
+path in `internal/httpserver` that can accidentally leak one back out.
+
 ## Configuration
 
 All configuration is environment-variable based (`internal/config`), with
@@ -216,7 +260,9 @@ Per spec §2.2 and §34, there is still no code path that:
 
 - talks to the Kubernetes API (Phase 10) — Docker's is now supported,
   read-only, and optional (Phase 2),
-- talks to any AI provider (Phase 6),
+- makes an actual AI call — Phase 6 delivers provider configuration,
+  health checks, and task routing only; the first real AI consumer is
+  failure analysis (Phase 7),
 - writes, commits, or pushes code anywhere (Phase 8),
 - executes anything found inside a scanned repository — discovery only
   *reads* file names/contents to classify them, it never runs them.
