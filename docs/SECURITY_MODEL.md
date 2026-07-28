@@ -6,7 +6,7 @@ and §23 for the full target model; this file states what's true *today*.
 [docs/THREAT_MODEL.md](THREAT_MODEL.md) covers threat areas in more depth
 as each phase introduces the surface they apply to.
 
-## Current state (Phases 0–4)
+## Current state (Phases 0–5)
 
 - **Target-repository access is read-only and path-validated.**
   `internal/projects.ValidateRepositoryPath` resolves the caller-supplied
@@ -27,20 +27,39 @@ as each phase introduces the surface they apply to.
   the exact same symlink-safe, skip-dir traversal as repository
   discovery (`discovery.Walk`) rather than a separate implementation —
   one walker to keep safe, not two.
-- **Docker access is read-only, minimal, and optional.**
-  `internal/dockerclient` implements exactly two Docker Engine API calls
-  (`/_ping`, `/containers/json`) over the Unix socket — not the full
-  Docker SDK — so a bug here has a deliberately small blast radius. The
-  socket is **not mounted by default** in `docker-compose.yml` (spec
-  §24.4: mounting it grants extensive host capability); every
-  `dockerclient` method returns `ErrUnavailable` when it's absent, and
-  callers treat that as a normal, expected state (a service still gets
-  recorded from its compose declaration, just with `status: "unknown"`).
-  Compose *files* are parsed directly as YAML (`internal/compose`) —
-  never via a `docker compose` subprocess — which avoids the
-  command-injection surface a shell-out would introduce (spec §23.3) and
-  discards environment variable *values* before they ever leave the
-  parser (spec §7.4). No Kubernetes API access yet (Phase 10).
+- **Docker access is narrow in what it implements, but now mandatory for
+  test execution.** As of Phase 5, `docker-compose.yml` mounts the
+  Docker socket into `sentinel-api` by default — a deliberate,
+  documented trade-off (direct mount chosen over a restricted proxy for
+  simplicity; see [docs/RUNNER_ISOLATION.md](RUNNER_ISOLATION.md#why-a-direct-socket-mount))
+  in exchange for host capability spec §24.4 warns about. `sentinel-api`
+  is added to Docker group `0` (`group_add`) purely to satisfy the
+  socket's Unix permission bits — it does not run as root and gains no
+  other capability from this. `internal/dockerclient` still implements
+  only the operations actually needed (discovery: ping, list containers;
+  Phase 5: create/start/wait/stop/remove a container, fetch its logs) —
+  never the full Docker SDK, and it never pulls or builds an image at
+  runtime (runner images are pre-built via `make up`). Discovery's Docker
+  calls still degrade gracefully (`ErrUnavailable`) if the socket becomes
+  unreachable; Phase 5's runner calls do not — there is no "run tests
+  without Docker" fallback, since Docker *is* the isolation mechanism.
+  Compose *files* are still parsed directly as YAML (`internal/compose`)
+  — never via a `docker compose` subprocess (spec §23.3) — and env var
+  *values* are discarded before leaving the parser (spec §7.4). No
+  Kubernetes API access yet (Phase 10).
+- **Runner containers are resource-limited and non-root.** Every test
+  run gets its own disposable container: memory/CPU limits, a wall-clock
+  timeout, no volume beyond its own workspace, and a fixed non-root user
+  (`pwuser`, baked into `Dockerfile.runner-playwright` — never
+  configurable per-run). Containers are removed immediately after each
+  run, verified via `docker ps -a --filter name=sentinel-run-` returning
+  empty after both passing and failing runs, including when execution
+  fails outright.
+- **Artifact downloads set defensive headers.** `GET
+  /artifacts/{id}/content` always sets `X-Content-Type-Options: nosniff`
+  and forces `Content-Disposition: attachment` for every artifact kind
+  except screenshots (spec §23.5) — a trace/log/HAR file is untrusted
+  content and must never be interpreted as HTML by a browser tab.
 - **Production-unsafe approvals are blocked at the API layer, not just
   the UI.** `POST /tests/{id}/approve` returns 403 for a mutating test
   case when any of the project's environments is classified `production`
@@ -68,12 +87,13 @@ as each phase introduces the surface they apply to.
 
 ## Not yet implemented
 
-Authentication/RBAC, approval workflow enforcement, secret redaction
-pipeline for AI context, Docker/Kubernetes discovery sandboxing, runner
-isolation, and patch-application safety all land in the phases that
-introduce the corresponding feature (Phases 4, 6, 8, 9 — see
+Authentication/RBAC, approval workflow enforcement for patches, secret
+redaction pipeline for AI context, Kubernetes discovery sandboxing, and
+patch-application safety all land in the phases that introduce the
+corresponding feature (Phases 6, 8, 9 — see
 [docs/ROADMAP.md](ROADMAP.md)). Until Phase 9, do not expose this
-deployment beyond a trusted local network.
+deployment beyond a trusted local network — this is now more important
+than before Phase 5, given the Docker socket is mounted by default.
 
 ## Reporting a vulnerability
 

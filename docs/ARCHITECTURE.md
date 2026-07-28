@@ -26,22 +26,25 @@ apps/api (Go, chi router)
   +-- internal/environments  Environment entity, restrictive classification
   +-- internal/discovery     Deterministic repository scanner
   +-- internal/compose       Docker Compose file parser (pure, no subprocess)
-  +-- internal/dockerclient  Minimal read-only Docker Engine API client
+  +-- internal/dockerclient  Docker Engine API client (discovery + Phase 5 container lifecycle)
   +-- internal/services      DiscoveredService entity
   +-- internal/routes        Best-effort route inventory extraction
   +-- internal/graph         Application Graph nodes/edges + correlation
   +-- internal/planning      Deterministic (no-AI) test case rule engine
+  +-- internal/testgen       Deterministic Playwright spec generation
+  +-- internal/runs          Runner interface, TestRun tracking
+  +-- internal/artifacts     Local-filesystem artifact storage
   +-- internal/httpserver    HTTP handlers
   |
   +-- PostgreSQL
   +-- Redis
-  +-- Docker daemon (optional, Unix socket)
+  +-- Docker daemon (required for Phase 5 test execution; optional otherwise)
+  +-- disposable Playwright runner containers (Phase 5)
 ```
 
 Future phases add sibling packages under `internal/` — `providers/`,
-`execution/`, `runners/`, `artifacts/`, `failures/`, `fixes/`,
-`approval/`, `secrets/`, `scheduler/`, `telemetry/` — exactly as laid out
-in spec §5.
+`failures/`, `fixes/`, `approval/`, `secrets/`, `scheduler/`,
+`telemetry/` — exactly as laid out in spec §5.
 
 ## Request flow
 
@@ -160,6 +163,45 @@ an edge's endpoints before they have database IDs.
 - `test_cases` — see `migrations/0005_test_cases.sql`. Unique on
   `(project_id, natural_key)`; `CreateIfAbsent` never overwrites an
   existing row, so a user's edits/approval survive regeneration.
+- `test_runs`, `artifacts` — see `migrations/0006_test_runs.sql`. One row
+  per `POST /tests/{id}/run`; artifacts reference their run and store
+  metadata only (checksum, MIME type, size, retention window) — bytes
+  live on the local filesystem (`internal/artifacts.FileStore`).
+
+## Domain flow: running a test (Phase 5)
+
+```text
+POST /tests/{id}/run
+  -> require approval_status == approved (403 otherwise)
+  -> require an environment with base_url set (422 otherwise)
+  -> runs.Store.Create (status=queued)
+  -> testgen.GenerateSpec(test case, environment.base_url)  [deterministic, no AI]
+  -> audit: test_run.started
+  -> return 202 immediately; execution continues in a background goroutine
+
+[background] executeRunAsync:
+  -> runs.Store.UpdateStatus(running)
+  -> Runner.Execute: write spec + playwright.config.ts into the run's
+     workspace, create+start a disposable container (Docker-outside-of-
+     Docker — see docs/RUNNER_ISOLATION.md), wait for exit, fetch logs,
+     remove the container
+  -> if a concurrent POST /runs/{id}/cancel already marked this
+     cancelled, stop here (don't overwrite with passed/failed)
+  -> save stdout/stderr as artifacts; Runner.CollectArtifacts finds any
+     screenshot/video/trace Playwright wrote on failure; save those too
+  -> Runner.Cleanup (removes the workspace directory) — called on EVERY
+     exit path, including when Execute itself failed
+  -> runs.Store.UpdateStatus(passed|failed, exit_code) — decided only by
+     the runner's exit code, never AI (spec §2.4)
+  -> audit: test_run.completed
+
+POST /runs/{id}/cancel
+  -> runs.Store.UpdateStatus(cancelled) immediately (optimistic)
+  -> Runner.Cancel: stop the container by its DETERMINISTIC name
+     ("sentinel-run-<runID>") — no in-memory state needed, works across
+     goroutines/processes
+  -> audit: test_run.cancelled
+```
 
 ## Configuration
 

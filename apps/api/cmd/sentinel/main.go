@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"e2e-sentinel/apps/api/internal/artifacts"
 	"e2e-sentinel/apps/api/internal/audit"
 	"e2e-sentinel/apps/api/internal/config"
 	"e2e-sentinel/apps/api/internal/db"
@@ -22,6 +23,7 @@ import (
 	"e2e-sentinel/apps/api/internal/logging"
 	"e2e-sentinel/apps/api/internal/planning"
 	"e2e-sentinel/apps/api/internal/projects"
+	"e2e-sentinel/apps/api/internal/runs"
 	"e2e-sentinel/apps/api/internal/services"
 )
 
@@ -92,6 +94,31 @@ func run(migrateOnly bool) error {
 	// so it's always safe to construct regardless of environment.
 	dockerClient := dockerclient.New(cfg.DockerSocketPath)
 
+	if err := os.MkdirAll(cfg.ArtifactsDir, 0o755); err != nil {
+		logger.Error().Err(err).Msg("creating artifacts directory failed")
+		return err
+	}
+
+	// Test execution (Phase 5) is optional: nil until
+	// SENTINEL_RUNNER_HOST_WORKSPACE_DIR is configured, since it requires
+	// Docker-outside-of-Docker (spec §11 needs sentinel-api to launch
+	// sibling containers; see docs/RUNNER_ISOLATION.md).
+	var runner runs.Runner
+	if cfg.RunnerWorkspaceHostDir != "" {
+		runner = &runs.DockerPlaywrightRunner{
+			Docker:                dockerClient,
+			Image:                 cfg.RunnerImage,
+			WorkspaceContainerDir: cfg.RunnerWorkspaceContainerDir,
+			WorkspaceHostDir:      cfg.RunnerWorkspaceHostDir,
+			MemoryBytes:           cfg.RunnerMemoryBytes,
+			NanoCPUs:              cfg.RunnerNanoCPUs,
+			Timeout:               cfg.RunnerTimeout,
+		}
+		logger.Info().Str("image", cfg.RunnerImage).Msg("test runner configured")
+	} else {
+		logger.Info().Msg("test runner not configured (SENTINEL_RUNNER_HOST_WORKSPACE_DIR unset) — POST /tests/{id}/run will return 503")
+	}
+
 	router := httpserver.NewRouter(httpserver.Dependencies{
 		Postgres:     httpserver.PostgresPinger{Pool: pgPool},
 		Redis:        httpserver.RedisPinger{Client: redisClient},
@@ -102,7 +129,10 @@ func run(migrateOnly bool) error {
 		Services:     services.NewPostgresStore(pgPool),
 		Graph:        graph.NewPostgresStore(pgPool),
 		Planning:     planning.NewPostgresStore(pgPool),
+		Runs:         runs.NewPostgresStore(pgPool),
+		Artifacts:    artifacts.NewFileStore(pgPool, cfg.ArtifactsDir),
 		Docker:       dockerClient,
+		Runner:       runner,
 		Logger:       logger,
 	})
 

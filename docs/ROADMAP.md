@@ -11,7 +11,7 @@ previous one's acceptance criteria are demonstrated (spec §33).
 | 2 | Docker Compose Discovery | **Done** |
 | 3 | Application Graph | **Done** |
 | 4 | Test Planning | **Done** |
-| 5 | Playwright Runner | Not started |
+| 5 | Playwright Runner | **Done** |
 | 6 | AI Providers | Not started |
 | 7 | Failure Analysis & Bug Reports | Not started |
 | 8 | Fix Proposals | Not started |
@@ -172,8 +172,66 @@ tests cannot be approved accidentally (403 gate, integration-tested);
 plan generation works without AI using deterministic rules (the only
 mode that exists).
 
-## Next: Phase 5 — Playwright Runner
+## Phase 5 — Playwright Runner (done)
 
-Per spec §25 Phase 5: isolated runner container, Playwright execution,
-live logs, screenshots/video/trace/HAR, console/network error capture,
-timeouts, cancellation, resource limits.
+- **Direct Docker socket mount** chosen over a restricted proxy (a
+  documented trade-off — see [docs/RUNNER_ISOLATION.md](RUNNER_ISOLATION.md#why-a-direct-socket-mount)):
+  `sentinel-api` now launches disposable sibling containers via
+  Docker-outside-of-Docker. `internal/dockerclient` gained container
+  lifecycle operations (create/start/wait/stop/logs/remove) — still not
+  the full Docker SDK, and runner images are pre-built, never pulled at
+  runtime (no arbitrary-image-pull surface).
+- `internal/testgen`: deterministic (no AI) Playwright spec generation
+  from an approved `TestCase` — smoke-level assertions only, honestly
+  documented as the ceiling without schema/AI input (spec §16.6, §36).
+- `internal/runs`: `Runner` interface (spec §11.2, adapted) +
+  `DockerPlaywrightRunner`. Cancellation works by stopping the container
+  by a **deterministic name**, not in-memory state — correct across
+  goroutines/processes. Resource limits (memory, CPU, wall-clock
+  timeout) are enforced per run (spec §11.4).
+- `internal/artifacts`: local-filesystem artifact storage (checksum,
+  MIME type, size, retention window per spec §12) — stdout/stderr
+  always, screenshot/video/trace on failure via Playwright's own
+  failure-triggered capture config.
+- API: `POST /tests/{id}/run`, `GET /runs/{id}`, `POST /runs/{id}/cancel`,
+  `GET /runs/{id}/artifacts`, `GET /artifacts/{id}/content`,
+  `GET /projects/{id}/runs`. Environments gained `base_url`
+  (`PATCH /environments/{id}`), required before a test can run. Web:
+  functional Runs page (start/poll/cancel/view artifacts, including
+  inline screenshot preview).
+
+**Three real bugs found and fixed during live-stack verification** (none
+caught by unit tests, since none touch a real Docker daemon):
+1. Docker Desktop's socket is `root:root` mode `660` — a non-root
+   container can't open it without `group_add`.
+2. A Docker-managed named volume is root-owned; the distroless artifacts
+   store couldn't write to it until a one-shot `artifacts-init`
+   container `chown`s it first.
+3. Globally-installed `@playwright/test` isn't on Node's `require()`
+   resolution path from an arbitrary bind-mounted working directory —
+   fixed via `NODE_PATH` in the runner image.
+
+Plus two logic bugs: `artifacts.FileStore.Save` left an orphaned,
+unreadable metadata row when the file write failed after the DB insert
+(fixed with a compensating delete); and `executeRunAsync` skipped
+`Runner.Cleanup` entirely when `Execute` itself failed, leaking the
+run's workspace directory on every infra-level failure (fixed, with a
+regression test).
+
+Acceptance criteria (spec) — verified against the live stack with a real
+Chromium browser in a real disposable container: a passing run (exit
+code 0, `status: passed`); a failing run against an unreachable target
+(exit code 1, `status: failed`, with screenshot/video/trace/stdout all
+captured and downloadable — screenshot confirmed as a valid 1280×720
+PNG); the runner container removed after every run
+(`docker ps -a --filter name=sentinel-run-` empty); cancellation
+covered by both a live check (409 on an already-finished run) and a
+unit test with a controllable blocking fake runner; the target
+repository was never written to.
+
+## Next: Phase 6 — AI Providers
+
+Per spec §25 Phase 6: Ollama, OpenAI, Anthropic, Gemini, Azure OpenAI,
+OpenAI-compatible provider, provider health test, secret encryption,
+redaction pipeline, task routing. AI remains advisory only (spec §2.4) —
+pass/fail continues to come from Phase 5's runner exit codes, never AI.

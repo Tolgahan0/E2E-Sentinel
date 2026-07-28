@@ -145,6 +145,36 @@ export interface TestsResponse {
   tests: TestCase[] | null;
 }
 
+export type RunStatus = 'queued' | 'running' | 'passed' | 'failed' | 'cancelled' | 'error';
+
+export interface TestRun {
+  id: string;
+  project_id: string;
+  test_case_id: string;
+  status: RunStatus;
+  runner_type: string;
+  exit_code: number | null;
+  summary: string;
+  started_at: string;
+  finished_at: string | null;
+}
+
+export interface RunsResponse {
+  runs: TestRun[] | null;
+}
+
+export interface RunArtifact {
+  id: string;
+  kind: string;
+  mime_type: string;
+  size_bytes: number;
+  checksum: string;
+}
+
+export interface ArtifactsResponse {
+  artifacts: RunArtifact[] | null;
+}
+
 /**
  * fetchJSON calls a same-origin /api/* route (a server-side Route Handler
  * that proxies to sentinel-api, reading SENTINEL_API_URL at request time)

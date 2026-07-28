@@ -1,0 +1,28 @@
+# Disposable Playwright test runner image (spec §11.1). Never pulled at
+# runtime by sentinel-api — this is built ahead of time (`make up` /
+# `docker compose build`) and referenced by a fixed tag
+# (SENTINEL_RUNNER_IMAGE), so there is no arbitrary-image-pull surface.
+#
+# Base image already bundles Chromium/Firefox/WebKit and their OS deps.
+FROM mcr.microsoft.com/playwright:v1.47.0-jammy
+
+# @playwright/test is installed globally so a bind-mounted workspace
+# containing only a generated spec + playwright.config.ts (no
+# package.json/node_modules of its own) can still run `playwright test`.
+# A global npm install does NOT put the package on Node's module
+# resolution path for an arbitrary working directory (only its CLI bin
+# is — global installs and `require()` resolution are unrelated
+# mechanisms) — NODE_PATH makes `import ... from '@playwright/test'`
+# inside the bind-mounted playwright.config.ts resolvable regardless of
+# where it's mounted.
+RUN npm install -g @playwright/test@1.47.0
+ENV NODE_PATH=/usr/lib/node_modules
+
+WORKDIR /workspace
+
+# The base image ships a non-root "pwuser" account; never run generated
+# test code as root (spec §11.1).
+USER pwuser
+
+ENTRYPOINT []
+CMD ["playwright", "test"]

@@ -1,14 +1,19 @@
-// Package dockerclient is a minimal, read-only Docker Engine API client
-// over the Unix socket. It implements exactly two operations (ping,
-// list containers) rather than pulling in the full Docker SDK, keeping
-// the capability surface — and therefore what a bug here could do —
-// deliberately small (spec §7.3: "must not assume Docker socket access
-// is safe").
+// Package dockerclient is a minimal Docker Engine API client over the
+// Unix socket, implementing only the operations E2E Sentinel actually
+// needs (discovery: ping, list containers; Phase 5 test runner: create/
+// start/wait/stop/remove a container, fetch its logs) rather than
+// pulling in the full Docker SDK. This keeps the capability surface —
+// and therefore what a bug here could do — deliberately small (spec
+// §7.3: "must not assume Docker socket access is safe"). Notably absent:
+// no image pull (runner images are pre-built, never fetched from a
+// registry at runtime), no exec, no arbitrary volume/network creation.
 //
-// It never assumes the socket is present or reachable: every method
-// returns ErrUnavailable when it isn't, so callers can degrade
-// gracefully (spec §25 Phase 2 acceptance: "Docker-unavailable state is
-// handled gracefully").
+// Discovery methods never assume the socket is present or reachable:
+// every method returns ErrUnavailable when it isn't, so callers can
+// degrade gracefully (spec §25 Phase 2 acceptance: "Docker-unavailable
+// state is handled gracefully"). Runner methods (Phase 5) require the
+// socket — there is no graceful "run without Docker" fallback for test
+// execution, since Docker is this feature's whole isolation mechanism.
 package dockerclient
 
 import (

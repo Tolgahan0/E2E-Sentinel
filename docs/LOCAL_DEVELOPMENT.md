@@ -14,10 +14,18 @@ cp .env.example .env
 make up
 ```
 
-This builds and starts `postgres`, `redis`, `sentinel-api`, and
-`sentinel-web`. The panel is at <http://localhost:9090>. `sentinel-api` is
-also published on `127.0.0.1:8080` for direct debugging (`curl
-localhost:8080/health`).
+This builds the Playwright runner image, then builds and starts
+`postgres`, `redis`, `sentinel-api`, `sentinel-web`, and a one-shot
+`artifacts-init` container. The panel is at <http://localhost:9090>.
+`sentinel-api` is also published on `127.0.0.1:8080` for direct debugging
+(`curl localhost:8080/health`).
+
+Use `make up` rather than `docker compose up` directly — it computes
+`SENTINEL_RUNNER_HOST_WORKSPACE_DIR` (an absolute host path
+`sentinel-api` needs to launch disposable test-runner containers; see
+[docs/RUNNER_ISOLATION.md](RUNNER_ISOLATION.md)) and passes it through.
+Without it, `docker-compose.yml` fails fast with a clear error rather
+than starting with test execution silently broken.
 
 `make down` stops everything. Postgres data persists in the
 `sentinel-postgres-data` named volume across restarts; `docker compose down
@@ -40,6 +48,15 @@ SENTINEL_REDIS_ADDR="localhost:6379" \
 SENTINEL_MIGRATIONS_DIR="../../migrations" \
 go run ./cmd/sentinel
 ```
+
+Running this way, test execution (Phase 5) works with less ceremony
+than in Docker: since the process runs directly on your host (not
+Docker-outside-of-Docker), `SENTINEL_RUNNER_WORKSPACE_DIR` and
+`SENTINEL_RUNNER_HOST_WORKSPACE_DIR` can both point at the same real
+path, e.g. `SENTINEL_RUNNER_WORKSPACE_DIR=/tmp/sentinel-runs
+SENTINEL_RUNNER_HOST_WORKSPACE_DIR=/tmp/sentinel-runs`. You'll still need
+`e2e-sentinel-playwright-runner:latest` built once
+(`docker compose build playwright-runner`).
 
 In another:
 

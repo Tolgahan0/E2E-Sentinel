@@ -8,12 +8,14 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"e2e-sentinel/apps/api/internal/artifacts"
 	"e2e-sentinel/apps/api/internal/audit"
 	"e2e-sentinel/apps/api/internal/discovery"
 	"e2e-sentinel/apps/api/internal/environments"
 	"e2e-sentinel/apps/api/internal/graph"
 	"e2e-sentinel/apps/api/internal/planning"
 	"e2e-sentinel/apps/api/internal/projects"
+	"e2e-sentinel/apps/api/internal/runs"
 	"e2e-sentinel/apps/api/internal/services"
 )
 
@@ -32,7 +34,10 @@ func newTestDeps(pgErr, redisErr error) Dependencies {
 		Services:     services.NewMemoryStore(),
 		Graph:        graph.NewMemoryStore(),
 		Planning:     planning.NewMemoryStore(),
+		Runs:         runs.NewMemoryStore(),
+		Artifacts:    artifacts.NewMemoryStore(),
 		Docker:       nil, // no Docker daemon in unit tests; must degrade gracefully
+		Runner:       nil, // no runner configured by default; see fakeRunner in runs_handlers_test.go
 	}
 }
 

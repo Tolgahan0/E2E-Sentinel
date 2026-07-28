@@ -46,6 +46,38 @@ type Config struct {
 	// Docker discovery is optional and self-degrades when the socket isn't
 	// there — it is never required for the API to function.
 	DockerSocketPath string
+
+	// RunnerImage is the pre-built Playwright runner image tag. Never
+	// pulled at runtime — it must already exist on the Docker daemon
+	// (built via `make up` / `docker compose build`).
+	RunnerImage string
+
+	// RunnerWorkspaceContainerDir is where sentinel-api itself writes
+	// generated spec files, from its own container's point of view.
+	RunnerWorkspaceContainerDir string
+
+	// RunnerWorkspaceHostDir is the SAME directory's path on the Docker
+	// *host* — required because sentinel-api talks to the host's Docker
+	// daemon over the mounted socket (Docker-outside-of-Docker), and
+	// bind-mount sources for new sibling containers are resolved by the
+	// daemon against the host filesystem, not sentinel-api's own
+	// container namespace. Empty means "test execution is not
+	// configured" — Phase 1-4 features work fine without it; only
+	// POST /tests/{id}/run needs it.
+	RunnerWorkspaceHostDir string
+
+	// RunnerMemoryBytes and RunnerNanoCPUs bound each disposable runner
+	// container's resource usage (spec §11.4).
+	RunnerMemoryBytes int64
+	RunnerNanoCPUs    int64
+
+	// RunnerTimeout bounds a single test run's wall-clock time.
+	RunnerTimeout time.Duration
+
+	// ArtifactsDir is where sentinel-api stores captured run artifacts
+	// (stdout/stderr/screenshots/videos/traces) on the local filesystem
+	// (spec §4.1 MVP storage backend).
+	ArtifactsDir string
 }
 
 // Load reads configuration from environment variables and validates it.
@@ -55,15 +87,22 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 
 	cfg := Config{
-		HTTPAddr:         firstNonEmpty(getenv("SENTINEL_HTTP_ADDR"), ":8080"),
-		DatabaseURL:      strings.TrimSpace(getenv("SENTINEL_DATABASE_URL")),
-		RedisAddr:        strings.TrimSpace(getenv("SENTINEL_REDIS_ADDR")),
-		RedisPassword:    getenv("SENTINEL_REDIS_PASSWORD"),
-		MigrationsDir:    firstNonEmpty(getenv("SENTINEL_MIGRATIONS_DIR"), "migrations"),
-		LogLevel:         firstNonEmpty(strings.ToLower(getenv("SENTINEL_LOG_LEVEL")), "info"),
-		Environment:      firstNonEmpty(getenv("SENTINEL_ENVIRONMENT"), "local"),
-		ShutdownTimeout:  10 * time.Second,
-		DockerSocketPath: firstNonEmpty(getenv("SENTINEL_DOCKER_SOCKET"), "/var/run/docker.sock"),
+		HTTPAddr:                    firstNonEmpty(getenv("SENTINEL_HTTP_ADDR"), ":8080"),
+		DatabaseURL:                 strings.TrimSpace(getenv("SENTINEL_DATABASE_URL")),
+		RedisAddr:                   strings.TrimSpace(getenv("SENTINEL_REDIS_ADDR")),
+		RedisPassword:               getenv("SENTINEL_REDIS_PASSWORD"),
+		MigrationsDir:               firstNonEmpty(getenv("SENTINEL_MIGRATIONS_DIR"), "migrations"),
+		LogLevel:                    firstNonEmpty(strings.ToLower(getenv("SENTINEL_LOG_LEVEL")), "info"),
+		Environment:                 firstNonEmpty(getenv("SENTINEL_ENVIRONMENT"), "local"),
+		ShutdownTimeout:             10 * time.Second,
+		DockerSocketPath:            firstNonEmpty(getenv("SENTINEL_DOCKER_SOCKET"), "/var/run/docker.sock"),
+		RunnerImage:                 firstNonEmpty(getenv("SENTINEL_RUNNER_IMAGE"), "e2e-sentinel-playwright-runner:latest"),
+		RunnerWorkspaceContainerDir: firstNonEmpty(getenv("SENTINEL_RUNNER_WORKSPACE_DIR"), "/runner-workspaces"),
+		RunnerWorkspaceHostDir:      getenv("SENTINEL_RUNNER_HOST_WORKSPACE_DIR"),
+		RunnerMemoryBytes:           1 << 30, // 1 GiB
+		RunnerNanoCPUs:              1_000_000_000,
+		RunnerTimeout:               2 * time.Minute,
+		ArtifactsDir:                firstNonEmpty(getenv("SENTINEL_ARTIFACTS_DIR"), "/data/artifacts"),
 	}
 
 	if raw := getenv("SENTINEL_SHUTDOWN_TIMEOUT_SECONDS"); raw != "" {
@@ -72,6 +111,14 @@ func Load(getenv func(string) string) (Config, error) {
 			return Config{}, fmt.Errorf("config: invalid SENTINEL_SHUTDOWN_TIMEOUT_SECONDS: %w", err)
 		}
 		cfg.ShutdownTimeout = time.Duration(seconds) * time.Second
+	}
+
+	if raw := getenv("SENTINEL_RUNNER_TIMEOUT_SECONDS"); raw != "" {
+		seconds, err := strconv.Atoi(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("config: invalid SENTINEL_RUNNER_TIMEOUT_SECONDS: %w", err)
+		}
+		cfg.RunnerTimeout = time.Duration(seconds) * time.Second
 	}
 
 	if err := cfg.validate(); err != nil {

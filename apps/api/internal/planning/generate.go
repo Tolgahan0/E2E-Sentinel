@@ -113,6 +113,8 @@ func tc(r routes.Route, category, priority, confidence string, isMutating bool, 
 		IsMutating:       isMutating,
 		IsProductionSafe: !isMutating,
 		ApprovalStatus:   ApprovalPending,
+		RoutePath:        r.Path,
+		RouteMethod:      r.Method,
 		// Title (not just category+route) must be part of the key: a
 		// single route can produce multiple sibling test cases in the
 		// same category (e.g. "valid credentials" and "invalid

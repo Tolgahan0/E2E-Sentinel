@@ -30,11 +30,11 @@ func (s *PostgresStore) CreateIfAbsent(ctx context.Context, tc TestCase) (TestCa
 	}
 
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO test_cases (project_id, natural_key, title, description, category, framework, status, risk_level, priority, confidence, source, preconditions, steps, assertions, required_credentials, is_mutating, is_production_safe, approval_status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+		INSERT INTO test_cases (project_id, natural_key, title, description, category, framework, status, risk_level, priority, confidence, source, preconditions, steps, assertions, required_credentials, is_mutating, is_production_safe, approval_status, route_path, route_method)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 		ON CONFLICT (project_id, natural_key) DO NOTHING
-		RETURNING id, project_id, natural_key, title, description, category, framework, status, risk_level, priority, confidence, source, preconditions, steps, assertions, required_credentials, is_mutating, is_production_safe, COALESCE(generated_file_path, ''), approval_status
-	`, tc.ProjectID, tc.NaturalKey, tc.Title, tc.Description, tc.Category, tc.Framework, tc.Status, tc.RiskLevel, tc.Priority, tc.Confidence, tc.Source, tc.Preconditions, tc.Steps, tc.Assertions, tc.RequiredCredentials, tc.IsMutating, tc.IsProductionSafe, tc.ApprovalStatus)
+		RETURNING id, project_id, natural_key, title, description, category, framework, status, risk_level, priority, confidence, source, preconditions, steps, assertions, required_credentials, is_mutating, is_production_safe, COALESCE(generated_file_path, ''), approval_status, route_path, route_method
+	`, tc.ProjectID, tc.NaturalKey, tc.Title, tc.Description, tc.Category, tc.Framework, tc.Status, tc.RiskLevel, tc.Priority, tc.Confidence, tc.Source, tc.Preconditions, tc.Steps, tc.Assertions, tc.RequiredCredentials, tc.IsMutating, tc.IsProductionSafe, tc.ApprovalStatus, tc.RoutePath, tc.RouteMethod)
 
 	result, err := scanTestCase(row)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -51,7 +51,7 @@ func (s *PostgresStore) CreateIfAbsent(ctx context.Context, tc TestCase) (TestCa
 
 func (s *PostgresStore) getByNaturalKey(ctx context.Context, projectID, naturalKey string) (TestCase, error) {
 	row := s.pool.QueryRow(ctx, `
-		SELECT id, project_id, natural_key, title, description, category, framework, status, risk_level, priority, confidence, source, preconditions, steps, assertions, required_credentials, is_mutating, is_production_safe, COALESCE(generated_file_path, ''), approval_status
+		SELECT id, project_id, natural_key, title, description, category, framework, status, risk_level, priority, confidence, source, preconditions, steps, assertions, required_credentials, is_mutating, is_production_safe, COALESCE(generated_file_path, ''), approval_status, route_path, route_method
 		FROM test_cases WHERE project_id = $1 AND natural_key = $2
 	`, projectID, naturalKey)
 	return scanTestCase(row)
@@ -59,7 +59,7 @@ func (s *PostgresStore) getByNaturalKey(ctx context.Context, projectID, naturalK
 
 func (s *PostgresStore) List(ctx context.Context, projectID string) ([]TestCase, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, project_id, natural_key, title, description, category, framework, status, risk_level, priority, confidence, source, preconditions, steps, assertions, required_credentials, is_mutating, is_production_safe, COALESCE(generated_file_path, ''), approval_status
+		SELECT id, project_id, natural_key, title, description, category, framework, status, risk_level, priority, confidence, source, preconditions, steps, assertions, required_credentials, is_mutating, is_production_safe, COALESCE(generated_file_path, ''), approval_status, route_path, route_method
 		FROM test_cases WHERE project_id = $1 ORDER BY priority, category, title
 	`, projectID)
 	if err != nil {
@@ -80,7 +80,7 @@ func (s *PostgresStore) List(ctx context.Context, projectID string) ([]TestCase,
 
 func (s *PostgresStore) Get(ctx context.Context, id string) (TestCase, error) {
 	row := s.pool.QueryRow(ctx, `
-		SELECT id, project_id, natural_key, title, description, category, framework, status, risk_level, priority, confidence, source, preconditions, steps, assertions, required_credentials, is_mutating, is_production_safe, COALESCE(generated_file_path, ''), approval_status
+		SELECT id, project_id, natural_key, title, description, category, framework, status, risk_level, priority, confidence, source, preconditions, steps, assertions, required_credentials, is_mutating, is_production_safe, COALESCE(generated_file_path, ''), approval_status, route_path, route_method
 		FROM test_cases WHERE id = $1
 	`, id)
 	tc, err := scanTestCase(row)
@@ -98,7 +98,7 @@ func (s *PostgresStore) UpdateApproval(ctx context.Context, id, approvalStatus s
 	row := s.pool.QueryRow(ctx, `
 		UPDATE test_cases SET approval_status = $2, status = CASE WHEN $2 = 'approved' THEN $3 ELSE status END, updated_at = now()
 		WHERE id = $1
-		RETURNING id, project_id, natural_key, title, description, category, framework, status, risk_level, priority, confidence, source, preconditions, steps, assertions, required_credentials, is_mutating, is_production_safe, COALESCE(generated_file_path, ''), approval_status
+		RETURNING id, project_id, natural_key, title, description, category, framework, status, risk_level, priority, confidence, source, preconditions, steps, assertions, required_credentials, is_mutating, is_production_safe, COALESCE(generated_file_path, ''), approval_status, route_path, route_method
 	`, id, approvalStatus, status)
 	tc, err := scanTestCase(row)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -115,7 +115,7 @@ func (s *PostgresStore) Update(ctx context.Context, id string, title, descriptio
 			priority = CASE WHEN $4 = '' THEN priority ELSE $4 END,
 			updated_at = now()
 		WHERE id = $1
-		RETURNING id, project_id, natural_key, title, description, category, framework, status, risk_level, priority, confidence, source, preconditions, steps, assertions, required_credentials, is_mutating, is_production_safe, COALESCE(generated_file_path, ''), approval_status
+		RETURNING id, project_id, natural_key, title, description, category, framework, status, risk_level, priority, confidence, source, preconditions, steps, assertions, required_credentials, is_mutating, is_production_safe, COALESCE(generated_file_path, ''), approval_status, route_path, route_method
 	`, id, title, description, priority)
 	tc, err := scanTestCase(row)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -130,7 +130,7 @@ type rowScanner interface {
 
 func scanTestCase(row rowScanner) (TestCase, error) {
 	var tc TestCase
-	err := row.Scan(&tc.ID, &tc.ProjectID, &tc.NaturalKey, &tc.Title, &tc.Description, &tc.Category, &tc.Framework, &tc.Status, &tc.RiskLevel, &tc.Priority, &tc.Confidence, &tc.Source, &tc.Preconditions, &tc.Steps, &tc.Assertions, &tc.RequiredCredentials, &tc.IsMutating, &tc.IsProductionSafe, &tc.GeneratedFilePath, &tc.ApprovalStatus)
+	err := row.Scan(&tc.ID, &tc.ProjectID, &tc.NaturalKey, &tc.Title, &tc.Description, &tc.Category, &tc.Framework, &tc.Status, &tc.RiskLevel, &tc.Priority, &tc.Confidence, &tc.Source, &tc.Preconditions, &tc.Steps, &tc.Assertions, &tc.RequiredCredentials, &tc.IsMutating, &tc.IsProductionSafe, &tc.GeneratedFilePath, &tc.ApprovalStatus, &tc.RoutePath, &tc.RouteMethod)
 	if err != nil {
 		return TestCase{}, err
 	}

@@ -73,6 +73,9 @@ type Store interface {
 	ListByProject(ctx context.Context, projectID string) ([]Environment, error)
 	Get(ctx context.Context, id string) (Environment, error)
 	UpdateClassification(ctx context.Context, id, classification string) (Environment, error)
+	// UpdateBaseURL sets the environment's target URL — required before
+	// a test case referencing it can be executed (Phase 5).
+	UpdateBaseURL(ctx context.Context, id, baseURL string) (Environment, error)
 }
 
 // DefaultForProject builds the environment auto-created alongside every

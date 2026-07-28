@@ -52,34 +52,63 @@ func handleListEnvironments(deps Dependencies) http.HandlerFunc {
 func handleUpdateEnvironment(deps Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Classification string `json:"classification"`
+			Classification string  `json:"classification"`
+			BaseURL        *string `json:"base_url"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
-		if !environments.ValidClassification(body.Classification) {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_classification"})
-			return
-		}
 
 		environmentID := chi.URLParam(r, "environmentID")
-		env, err := deps.Environments.UpdateClassification(r.Context(), environmentID, body.Classification)
-		if errors.Is(err, environments.ErrNotFound) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "environment_not_found"})
-			return
-		}
-		if err != nil {
-			deps.Logger.Error().Err(err).Msg("updating environment classification failed")
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
-			return
+		var env environments.Environment
+		var err error
+
+		if body.Classification != "" {
+			if !environments.ValidClassification(body.Classification) {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_classification"})
+				return
+			}
+			env, err = deps.Environments.UpdateClassification(r.Context(), environmentID, body.Classification)
+			if errors.Is(err, environments.ErrNotFound) {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "environment_not_found"})
+				return
+			}
+			if err != nil {
+				deps.Logger.Error().Err(err).Msg("updating environment classification failed")
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+				return
+			}
+			if err := deps.Audit.Record(r.Context(), audit.Event{
+				ActionType: "environment.classification_changed", ResourceType: "environment", ResourceID: environmentID,
+				Actor: "user", Metadata: map[string]any{"classification": env.Classification},
+			}); err != nil {
+				deps.Logger.Error().Err(err).Msg("recording environment.classification_changed audit event failed")
+			}
 		}
 
-		if err := deps.Audit.Record(r.Context(), audit.Event{
-			ActionType: "environment.classification_changed", ResourceType: "environment", ResourceID: environmentID,
-			Actor: "user", Metadata: map[string]any{"classification": env.Classification},
-		}); err != nil {
-			deps.Logger.Error().Err(err).Msg("recording environment.classification_changed audit event failed")
+		if body.BaseURL != nil {
+			env, err = deps.Environments.UpdateBaseURL(r.Context(), environmentID, *body.BaseURL)
+			if errors.Is(err, environments.ErrNotFound) {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "environment_not_found"})
+				return
+			}
+			if err != nil {
+				deps.Logger.Error().Err(err).Msg("updating environment base_url failed")
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+				return
+			}
+			if err := deps.Audit.Record(r.Context(), audit.Event{
+				ActionType: "environment.base_url_changed", ResourceType: "environment", ResourceID: environmentID,
+				Actor: "user",
+			}); err != nil {
+				deps.Logger.Error().Err(err).Msg("recording environment.base_url_changed audit event failed")
+			}
+		}
+
+		if body.Classification == "" && body.BaseURL == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "nothing_to_update"})
+			return
 		}
 
 		writeJSON(w, http.StatusOK, toEnvironmentResponse(env))

@@ -77,6 +77,12 @@ type TestCase struct {
 	IsProductionSafe    bool
 	GeneratedFilePath   string
 	ApprovalStatus      string
+	// RoutePath and RouteMethod carry the structured route info the
+	// deterministic spec generator (internal/testgen) needs — Steps is
+	// human-readable prose, not a safe parse target for codegen.
+	// RouteMethod is "" for a browser page route.
+	RoutePath   string
+	RouteMethod string
 	// NaturalKey identifies a suggestion across regenerations (e.g.
 	// "authentication|POST /api/v1/auth/login") so re-running planning
 	// never duplicates or overwrites a test the user already

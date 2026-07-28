@@ -73,3 +73,16 @@ func (s *MemoryStore) UpdateClassification(_ context.Context, id, classification
 	s.byID[id] = e
 	return e, nil
 }
+
+func (s *MemoryStore) UpdateBaseURL(_ context.Context, id, baseURL string) (Environment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.byID[id]
+	if !ok {
+		return Environment{}, ErrNotFound
+	}
+	e.BaseURL = baseURL
+	e.UpdatedAt = time.Now()
+	s.byID[id] = e
+	return e, nil
+}

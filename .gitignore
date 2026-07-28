@@ -7,6 +7,11 @@
 /workspace/*
 !/workspace/.gitkeep
 
+# Generated test specs written here per run (Phase 5), shared with
+# disposable runner containers — never part of E2E Sentinel's own source.
+/runner-workspaces/*
+!/runner-workspaces/.gitkeep
+
 # Go
 apps/api/sentinel
 *.test

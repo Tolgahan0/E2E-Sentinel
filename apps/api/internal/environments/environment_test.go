@@ -86,3 +86,24 @@ func TestMemoryStore_UpdateClassificationAppliesRestrictions(t *testing.T) {
 		t.Errorf("err = %v, want ErrNotFound", err)
 	}
 }
+
+func TestMemoryStore_UpdateBaseURL(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+	created, err := store.Create(ctx, Environment{ProjectID: "p1", Name: "default", Classification: ClassificationLocal})
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+
+	updated, err := store.UpdateBaseURL(ctx, created.ID, "http://localhost:3000")
+	if err != nil {
+		t.Fatalf("UpdateBaseURL() error: %v", err)
+	}
+	if updated.BaseURL != "http://localhost:3000" {
+		t.Errorf("BaseURL = %q, want http://localhost:3000", updated.BaseURL)
+	}
+
+	if _, err := store.UpdateBaseURL(ctx, "missing", "http://x"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound", err)
+	}
+}

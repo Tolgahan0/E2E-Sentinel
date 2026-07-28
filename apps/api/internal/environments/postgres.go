@@ -86,6 +86,19 @@ func (s *PostgresStore) UpdateClassification(ctx context.Context, id, classifica
 	return e, err
 }
 
+func (s *PostgresStore) UpdateBaseURL(ctx context.Context, id, baseURL string) (Environment, error) {
+	row := s.pool.QueryRow(ctx, `
+		UPDATE environments SET base_url = NULLIF($2, ''), updated_at = now()
+		WHERE id = $1
+		RETURNING id, project_id, name, type, COALESCE(base_url, ''), classification, is_production, allow_mutations, allow_load_tests, allow_active_security_scan, created_at, updated_at
+	`, id, baseURL)
+	e, err := scanEnvironment(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Environment{}, ErrNotFound
+	}
+	return e, err
+}
+
 type rowScanner interface {
 	Scan(dest ...any) error
 }

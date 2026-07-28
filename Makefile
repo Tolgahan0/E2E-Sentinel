@@ -20,7 +20,9 @@ build:
 	cd apps/web && npm run build
 
 up:
-	docker compose up -d --build
+	@mkdir -p runner-workspaces workspace
+	SENTINEL_RUNNER_HOST_WORKSPACE_DIR="$$(pwd)/runner-workspaces" docker compose build playwright-runner
+	SENTINEL_RUNNER_HOST_WORKSPACE_DIR="$$(pwd)/runner-workspaces" docker compose up -d --build
 
 down:
 	docker compose down

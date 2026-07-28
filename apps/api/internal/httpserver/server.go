@@ -13,12 +13,14 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/rs/zerolog"
 
+	"e2e-sentinel/apps/api/internal/artifacts"
 	"e2e-sentinel/apps/api/internal/audit"
 	"e2e-sentinel/apps/api/internal/discovery"
 	"e2e-sentinel/apps/api/internal/environments"
 	"e2e-sentinel/apps/api/internal/graph"
 	"e2e-sentinel/apps/api/internal/planning"
 	"e2e-sentinel/apps/api/internal/projects"
+	"e2e-sentinel/apps/api/internal/runs"
 	"e2e-sentinel/apps/api/internal/services"
 )
 
@@ -41,9 +43,15 @@ type Dependencies struct {
 	Services     services.Store
 	Graph        graph.Store
 	Planning     planning.Store
+	Runs         runs.Store
+	Artifacts    artifacts.Store
 	// Docker is optional: nil means "no Docker integration configured",
 	// handled the same as an unreachable daemon (spec §25 Phase 2).
 	Docker DockerLister
+	// Runner is optional: nil means "test execution is not configured"
+	// (SENTINEL_RUNNER_HOST_WORKSPACE_DIR unset) — every other feature
+	// works fine without it; POST /tests/{id}/run returns 503.
+	Runner runs.Runner
 	Logger zerolog.Logger
 }
 
@@ -73,6 +81,7 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Get("/graph", handleGetGraph(deps))
 				r.Post("/tests/plan", handleGenerateTestPlan(deps))
 				r.Get("/tests", handleListTests(deps))
+				r.Get("/runs", handleListProjectRuns(deps))
 			})
 		})
 
@@ -82,7 +91,16 @@ func NewRouter(deps Dependencies) http.Handler {
 			r.Patch("/", handleUpdateTest(deps))
 			r.Post("/approve", handleApproveTest(deps))
 			r.Post("/reject", handleRejectTest(deps))
+			r.Post("/run", handleRunTest(deps))
 		})
+
+		r.Route("/runs/{runID}", func(r chi.Router) {
+			r.Get("/", handleGetRun(deps))
+			r.Post("/cancel", handleCancelRun(deps))
+			r.Get("/artifacts", handleListRunArtifacts(deps))
+		})
+
+		r.Get("/artifacts/{artifactID}/content", handleGetArtifactContent(deps))
 	})
 
 	return r

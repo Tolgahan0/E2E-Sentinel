@@ -1,18 +1,34 @@
 # Test Generation
 
-**Status: not yet implemented.** Lands in Phase 4 (planning) and Phase 5
-(Playwright execution). See spec §9–§10.
+Implemented as of Phase 5. Two stages:
 
-## Planned behavior
+1. **Planning** (Phase 4, `internal/planning`) — deterministic rules
+   produce reviewable, editable `TestCase` rows from extracted routes:
+   approve/reject/edit-title/edit-priority via the API, `is_mutating`/
+   `is_production_safe` always shown, a coverage-confidence summary on
+   the Test Inventory page that never claims complete coverage.
+2. **Spec generation** (Phase 5, `internal/testgen`) — a *deterministic
+   template*, not AI, turns an approved `TestCase` into a runnable
+   Playwright spec file at the moment `POST /tests/{id}/run` is called.
+   See [docs/RUNNER_ISOLATION.md](RUNNER_ISOLATION.md#test-generation)
+   for exactly what the generated assertions do and don't check — given
+   no schema or AI input, they're smoke-level by design (page renders
+   without a console error; API endpoint doesn't 5xx), never presented
+   as more than that.
 
-Risk-based test planning produces reviewable, editable test cases
-(approve all / approve selected / reject / edit / reprioritize) with a
-coverage-confidence view that never claims complete coverage. Generated
-Playwright tests use stable/accessible locators, explicit assertions,
-reusable fixtures, and capture traces/screenshots/video/console/network
-errors on failure — never arbitrary sleeps, brittle CSS selectors,
-hard-coded secrets, or order-dependent state.
+Generated tests avoid arbitrary sleeps, hard-coded secrets, and
+environment-specific URLs baked into the spec itself (the target URL is
+injected from the project's `Environment.base_url` at generation time,
+not hard-coded in a template). They don't yet use accessible-role-based
+locators or reusable fixtures beyond the fixed Playwright config
+(`screenshot: only-on-failure`, `video: retain-on-failure`,
+`trace: retain-on-failure`) — there's no page structure to derive a
+richer locator from without AI or a schema, which is the honest ceiling
+documented above.
 
-## What exists today
+## What's not implemented yet
 
-No test-generation code exists in Phase 0.
+Regenerating/refining a generated spec after a run (e.g. adding more
+specific assertions once a human reviews the failure) is not built — a
+generated spec is fixed at generation time. AI-assisted test generation
+(richer assertions, realistic request bodies) is deferred to Phase 6+.
