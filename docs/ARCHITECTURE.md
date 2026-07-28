@@ -30,6 +30,7 @@ apps/api (Go, chi router)
   +-- internal/services      DiscoveredService entity
   +-- internal/routes        Best-effort route inventory extraction
   +-- internal/graph         Application Graph nodes/edges + correlation
+  +-- internal/planning      Deterministic (no-AI) test case rule engine
   +-- internal/httpserver    HTTP handlers
   |
   +-- PostgreSQL
@@ -38,9 +39,9 @@ apps/api (Go, chi router)
 ```
 
 Future phases add sibling packages under `internal/` — `providers/`,
-`planning/`, `execution/`, `runners/`, `artifacts/`, `failures/`,
-`fixes/`, `approval/`, `secrets/`, `scheduler/`, `telemetry/` — exactly
-as laid out in spec §5.
+`execution/`, `runners/`, `artifacts/`, `failures/`, `fixes/`,
+`approval/`, `secrets/`, `scheduler/`, `telemetry/` — exactly as laid out
+in spec §5.
 
 ## Request flow
 
@@ -156,6 +157,9 @@ an edge's endpoints before they have database IDs.
 - `graph_nodes`, `graph_edges` — see `migrations/0004_application_graph.sql`.
   Replaced wholesale per project on every discovery run (no upsert-by-key;
   see `graph.PostgresStore.ReplaceGraph`).
+- `test_cases` — see `migrations/0005_test_cases.sql`. Unique on
+  `(project_id, natural_key)`; `CreateIfAbsent` never overwrites an
+  existing row, so a user's edits/approval survive regeneration.
 
 ## Configuration
 

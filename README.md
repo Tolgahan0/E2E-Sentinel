@@ -14,7 +14,7 @@ without explicit approval.
 
 This repository is being built incrementally against
 [`E2E_SENTINEL_CODEX_MASTER_SPEC.md`](E2E_SENTINEL_CODEX_MASTER_SPEC.md).
-**Phases 0–3** are implemented; see [docs/ROADMAP.md](docs/ROADMAP.md)
+**Phases 0–4** are implemented; see [docs/ROADMAP.md](docs/ROADMAP.md)
 for what comes next and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) /
 [ADR 0001](docs/adr/0001-phase0-foundation.md) for the reasoning behind
 the foundational choices.
@@ -45,10 +45,17 @@ the foundational choices.
   Every edge carries its evidence and a confidence level; ambiguous
   relationships (e.g. more than one candidate service) produce no edge
   rather than a guess.
+- **Test planning**: risk-scored (P0–P3) test case suggestions generated
+  from extracted routes using fixed, deterministic rules — no AI call is
+  made or possible. Mutating tests default to production-unsafe;
+  approving one is blocked (403) while the project has a production or
+  unknown-classified environment. Suggestions can be approved, rejected,
+  or edited, and regenerating a plan never overwrites a test the user
+  already reviewed.
 - A Next.js panel (`apps/web`) on port `9090`: Dashboard, Audit Logs,
-  Projects, Discovery (findings + services), and Application Map are
-  functional; the remaining nav sections are stub pages pointing at the
-  phase that implements them.
+  Projects, Discovery (findings + services), Application Map, and Test
+  Inventory are functional; the remaining nav sections are stub pages
+  pointing at the phase that implements them.
 - Versioned SQL migrations with a small custom runner.
 - Docker Compose stack: `sentinel-api`, `sentinel-web`, `postgres`, `redis`.
 

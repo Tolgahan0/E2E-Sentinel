@@ -122,6 +122,29 @@ export interface GraphResponse {
   edges: GraphEdge[] | null;
 }
 
+export interface TestCase {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  framework: string;
+  status: string;
+  risk_level: 'high' | 'medium' | 'low';
+  priority: 'P0' | 'P1' | 'P2' | 'P3';
+  confidence: 'high' | 'medium' | 'low';
+  source: string;
+  steps: string[];
+  assertions: string[];
+  required_credentials: string[];
+  is_mutating: boolean;
+  is_production_safe: boolean;
+  approval_status: 'pending' | 'approved' | 'rejected';
+}
+
+export interface TestsResponse {
+  tests: TestCase[] | null;
+}
+
 /**
  * fetchJSON calls a same-origin /api/* route (a server-side Route Handler
  * that proxies to sentinel-api, reading SENTINEL_API_URL at request time)

@@ -10,7 +10,7 @@ previous one's acceptance criteria are demonstrated (spec §33).
 | 1 | Project & Repository Discovery | **Done** |
 | 2 | Docker Compose Discovery | **Done** |
 | 3 | Application Graph | **Done** |
-| 4 | Test Planning | Not started |
+| 4 | Test Planning | **Done** |
 | 5 | Playwright Runner | Not started |
 | 6 | AI Providers | Not started |
 | 7 | Failure Analysis & Bug Reports | Not started |
@@ -121,9 +121,59 @@ end-to-end against a live Postgres-backed API and through the web proxy;
 every edge carries evidence; low-confidence edges are visibly marked;
 repeated discovery does not duplicate the graph.
 
-## Next: Phase 4 — Test Planning
+## Phase 4 — Test Planning (done)
 
-Per spec §25 Phase 4: risk model, test category engine, suggested
-scenarios, approval workflow, manual editing, confidence coverage view,
-AI and no-AI planning (deterministic rules only, since Phase 6/AI
-providers doesn't exist yet).
+- `internal/planning`: `TestCase` entity (spec §6.6) and a fixed-rule
+  engine (`GeneratePlan`) — **no AI call is made or possible**, since
+  Phase 6 (AI providers) doesn't exist yet; this is the "no-AI mode"
+  baseline the spec requires to remain the permanent fallback (§16.6).
+  Rules cover authentication (valid/invalid credentials), authorization
+  (non-admin access), tenant isolation (path contains a tenant segment),
+  CRUD + validation (mutating routes), API schema (read-only routes),
+  error handling (webhooks), and smoke (health routes) — risk-scored into
+  P0–P3 and high/medium/low, derived from route kind and HTTP method
+  alone, never upgraded above the source route's own confidence.
+- Idempotent regeneration: `CreateIfAbsent` keyed by
+  `(project_id, natural_key)` — re-running planning after new discovery
+  never overwrites a test case the user already edited, approved, or
+  rejected. (Known trade-off: if a route's classification changes on a
+  later fix, previously generated suggestions under the old
+  classification aren't retroactively removed — only newly-added,
+  never-reviewed "pending" ones accumulate that way; approved/rejected
+  ones are unaffected either way.)
+- Production-safety gate: `POST /tests/{id}/approve` looks up the test's
+  project environments and refuses (403) to approve a mutating test
+  while any environment is classified `production` or `unknown` — spec
+  §25 Phase 4's literal acceptance criterion ("Production-unsafe tests
+  cannot be approved accidentally"), verified against a live API.
+- API: `POST /projects/{id}/tests/plan`, `GET /projects/{id}/tests`,
+  `PATCH /tests/{id}` (edit title/description/priority),
+  `POST /tests/{id}/approve`, `POST /tests/{id}/reject`. Web: functional
+  Test Inventory page (generate/filter/approve/reject/edit + a coverage-
+  confidence summary that's explicit about being "suggested coverage
+  only"); Approvals page now points here.
+
+Two real bugs were caught by manual live-stack verification while
+building this phase (not by unit tests, which used routes with
+kind/path combinations that happened to mask them) and fixed with
+regression tests added: (1) sibling test cases generated for the same
+route (e.g. "valid credentials" vs "invalid credentials") shared an
+identical `NaturalKey`, silently colliding down to one stored row; (2)
+the Next.js `route.ts` file-convention handler hardcoded `Kind: KindAPI`
+instead of classifying by path, so e.g. `POST /api/v1/auth/login` was
+never recognized as an authentication route — the same class of bug
+already fixed for `page.tsx` in Phase 3, which should have been a signal
+to check the sibling code path at the time.
+
+Acceptance criteria (spec) — verified: suggested tests are reviewable
+(GET /tests, web Test Inventory); mutating tests are clearly marked
+(`is_mutating`/`is_production_safe` on every response); production-unsafe
+tests cannot be approved accidentally (403 gate, integration-tested);
+plan generation works without AI using deterministic rules (the only
+mode that exists).
+
+## Next: Phase 5 — Playwright Runner
+
+Per spec §25 Phase 5: isolated runner container, Playwright execution,
+live logs, screenshots/video/trace/HAR, console/network error capture,
+timeouts, cancellation, resource limits.

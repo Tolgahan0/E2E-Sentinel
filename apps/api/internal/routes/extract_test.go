@@ -56,6 +56,9 @@ export async function GET(req) { return Response.json({}) }
 	if !ok {
 		t.Fatalf("expected POST /api/v1/auth/login, got %+v", routes)
 	}
+	if post.Kind != KindAuth {
+		t.Errorf("post.Kind = %q, want auth (path contains /auth) — a route.ts handler must be classified by path, not hardcoded to KindAPI", post.Kind)
+	}
 	if post.Confidence != ConfidenceHigh {
 		t.Errorf("post.Confidence = %q, want high", post.Confidence)
 	}

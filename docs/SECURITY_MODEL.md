@@ -6,7 +6,7 @@ and §23 for the full target model; this file states what's true *today*.
 [docs/THREAT_MODEL.md](THREAT_MODEL.md) covers threat areas in more depth
 as each phase introduces the surface they apply to.
 
-## Current state (Phases 0–3)
+## Current state (Phases 0–4)
 
 - **Target-repository access is read-only and path-validated.**
   `internal/projects.ValidateRepositoryPath` resolves the caller-supplied
@@ -41,6 +41,12 @@ as each phase introduces the surface they apply to.
   command-injection surface a shell-out would introduce (spec §23.3) and
   discards environment variable *values* before they ever leave the
   parser (spec §7.4). No Kubernetes API access yet (Phase 10).
+- **Production-unsafe approvals are blocked at the API layer, not just
+  the UI.** `POST /tests/{id}/approve` returns 403 for a mutating test
+  case when any of the project's environments is classified `production`
+  or `unknown` (spec §2.6) — enforced server-side regardless of what
+  client makes the request, and covered by both a unit and an
+  integration test against a live API.
 - **No AI provider access.** No outbound calls to any LLM provider exist
   yet.
 - **Secrets.** `POSTGRES_PASSWORD` has no default and must be supplied via

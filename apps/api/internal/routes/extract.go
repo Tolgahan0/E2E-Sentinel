@@ -77,13 +77,13 @@ func classifyRouteFile(c *collector, root, rel string) {
 			return
 		}
 		if nextRouteFiles[name] {
-			path := "/" + strings.Join(segments, "/")
+			path := cleanPath("/" + strings.Join(segments, "/"))
 			methods := extractExportedMethods(filepath.Join(root, rel))
 			if len(methods) == 0 {
 				methods = []string{""}
 			}
 			for _, method := range methods {
-				c.add(Route{Method: method, Path: cleanPath(path), Kind: KindAPI, SourcePath: rel, Confidence: ConfidenceHigh,
+				c.add(Route{Method: method, Path: path, Kind: ClassifyPathKind(path, method != ""), SourcePath: rel, Confidence: ConfidenceHigh,
 					Evidence: map[string]any{"convention": "next-app-router-route-handler"}})
 			}
 			return

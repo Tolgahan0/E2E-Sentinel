@@ -17,6 +17,7 @@ import (
 	"e2e-sentinel/apps/api/internal/discovery"
 	"e2e-sentinel/apps/api/internal/environments"
 	"e2e-sentinel/apps/api/internal/graph"
+	"e2e-sentinel/apps/api/internal/planning"
 	"e2e-sentinel/apps/api/internal/projects"
 	"e2e-sentinel/apps/api/internal/services"
 )
@@ -39,6 +40,7 @@ type Dependencies struct {
 	Discovery    discovery.Store
 	Services     services.Store
 	Graph        graph.Store
+	Planning     planning.Store
 	// Docker is optional: nil means "no Docker integration configured",
 	// handled the same as an unreachable daemon (spec §25 Phase 2).
 	Docker DockerLister
@@ -69,10 +71,18 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Get("/environments", handleListEnvironments(deps))
 				r.Get("/services", handleListServices(deps))
 				r.Get("/graph", handleGetGraph(deps))
+				r.Post("/tests/plan", handleGenerateTestPlan(deps))
+				r.Get("/tests", handleListTests(deps))
 			})
 		})
 
 		r.Patch("/environments/{environmentID}", handleUpdateEnvironment(deps))
+
+		r.Route("/tests/{testID}", func(r chi.Router) {
+			r.Patch("/", handleUpdateTest(deps))
+			r.Post("/approve", handleApproveTest(deps))
+			r.Post("/reject", handleRejectTest(deps))
+		})
 	})
 
 	return r

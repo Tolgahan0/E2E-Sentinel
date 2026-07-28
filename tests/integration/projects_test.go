@@ -30,6 +30,26 @@ func postJSON(t *testing.T, url string, body, out any) *http.Response {
 	return res
 }
 
+func patchJSON(t *testing.T, url string, body any) *http.Response {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(body); err != nil {
+		t.Fatalf("encoding request body: %v", err)
+	}
+	req, err := http.NewRequest(http.MethodPatch, url, &buf)
+	if err != nil {
+		t.Fatalf("building PATCH request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 10 * time.Second}
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("PATCH %s: %v", url, err)
+	}
+	defer res.Body.Close()
+	return res
+}
+
 // workspaceFixtureDir creates a fixture repository under this repo's
 // ./workspace directory (host side), which docker-compose.yml mounts
 // read-only into sentinel-api at /workspace — see
