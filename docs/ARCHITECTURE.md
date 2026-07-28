@@ -28,6 +28,8 @@ apps/api (Go, chi router)
   +-- internal/compose       Docker Compose file parser (pure, no subprocess)
   +-- internal/dockerclient  Minimal read-only Docker Engine API client
   +-- internal/services      DiscoveredService entity
+  +-- internal/routes        Best-effort route inventory extraction
+  +-- internal/graph         Application Graph nodes/edges + correlation
   +-- internal/httpserver    HTTP handlers
   |
   +-- PostgreSQL
@@ -35,10 +37,10 @@ apps/api (Go, chi router)
   +-- Docker daemon (optional, Unix socket)
 ```
 
-Future phases add sibling packages under `internal/` — `graph/`,
-`providers/`, `planning/`, `execution/`, `runners/`, `artifacts/`,
-`failures/`, `fixes/`, `approval/`, `secrets/`, `scheduler/`,
-`telemetry/` — exactly as laid out in spec §5.
+Future phases add sibling packages under `internal/` — `providers/`,
+`planning/`, `execution/`, `runners/`, `artifacts/`, `failures/`,
+`fixes/`, `approval/`, `secrets/`, `scheduler/`, `telemetry/` — exactly
+as laid out in spec §5.
 
 ## Request flow
 
@@ -112,6 +114,33 @@ services.Store.Upsert(...)             [keyed by (project_id, name) — idempote
 `docker-compose.yml` does not mount the socket by default (see
 [docs/DOCKER_DISCOVERY.md](DOCKER_DISCOVERY.md)).
 
+### Application Graph (Phase 3)
+
+Still within the same `POST /projects/{id}/discover` request, after
+services are upserted:
+
+```text
+routes.Extract(root, findings)        [Next.js file conventions + OpenAPI
+                                        paths -> high confidence; regex-
+                                        matched Express/Go/Flask calls,
+                                        via the same discovery.Walk used
+                                        by repository scanning -> medium]
+graph.Build(root, routes, services)
+  depends_on edges  <- compose depends_on (high confidence)
+  served_by edges   <- only if exactly ONE non-infra service exists
+                        (ambiguous otherwise -> no edge, per spec §8.2)
+  calls edges       <- literal fetch()/axios() URL in a page's source
+                        matched against a known route path (medium)
+graph.Store.ReplaceGraph(...)          [delete-then-insert per project,
+                                         in one transaction — never
+                                         accumulates duplicates]
+  -> audit: graph.built
+```
+
+`GET /projects/{id}/graph` returns nodes and edges with real (resolved)
+IDs; `Node.Key()` (`node_type|label`) is only used internally to resolve
+an edge's endpoints before they have database IDs.
+
 ## Data model
 
 - `schema_migrations` — tracks which migration files have been applied.
@@ -124,6 +153,9 @@ services.Store.Upsert(...)             [keyed by (project_id, name) — idempote
 - `discovered_services` — see `migrations/0003_discovered_services.sql`.
   Upserted by `(project_id, name)`; `metadata` carries env var *names*
   (never values), profiles, and live status when observed.
+- `graph_nodes`, `graph_edges` — see `migrations/0004_application_graph.sql`.
+  Replaced wholesale per project on every discovery run (no upsert-by-key;
+  see `graph.PostgresStore.ReplaceGraph`).
 
 ## Configuration
 

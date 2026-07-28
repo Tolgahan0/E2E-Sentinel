@@ -9,7 +9,10 @@ import (
 
 	"e2e-sentinel/apps/api/internal/audit"
 	"e2e-sentinel/apps/api/internal/discovery"
+	"e2e-sentinel/apps/api/internal/graph"
 	"e2e-sentinel/apps/api/internal/projects"
+	"e2e-sentinel/apps/api/internal/routes"
+	"e2e-sentinel/apps/api/internal/services"
 )
 
 type findingResponse struct {
@@ -81,13 +84,17 @@ func handleDiscoverProject(deps Dependencies) http.HandlerFunc {
 			deps.Logger.Error().Err(err).Msg("recording repository.scanned audit event failed")
 		}
 
+		var upsertedServices []services.Service
 		if deps.Services != nil {
 			discovered := discoverServices(r.Context(), project.RepositoryPath, findings, deps.Docker, deps.Logger)
 			for _, svc := range discovered {
 				svc.ProjectID = projectID
-				if _, err := deps.Services.Upsert(r.Context(), svc); err != nil {
+				stored, err := deps.Services.Upsert(r.Context(), svc)
+				if err != nil {
 					deps.Logger.Error().Err(err).Str("service", svc.Name).Msg("upserting discovered service failed")
+					continue
 				}
+				upsertedServices = append(upsertedServices, stored)
 			}
 			if len(discovered) > 0 {
 				if err := deps.Audit.Record(r.Context(), audit.Event{
@@ -96,6 +103,22 @@ func handleDiscoverProject(deps Dependencies) http.HandlerFunc {
 				}); err != nil {
 					deps.Logger.Error().Err(err).Msg("recording service.discovered audit event failed")
 				}
+			}
+		}
+
+		if deps.Graph != nil {
+			extractedRoutes, err := routes.Extract(project.RepositoryPath, findings)
+			if err != nil {
+				deps.Logger.Warn().Err(err).Msg("route extraction failed; graph will be built without routes")
+			}
+			nodes, edges := graph.Build(project.RepositoryPath, extractedRoutes, upsertedServices)
+			if err := deps.Graph.ReplaceGraph(r.Context(), projectID, nodes, edges); err != nil {
+				deps.Logger.Error().Err(err).Msg("replacing application graph failed")
+			} else if err := deps.Audit.Record(r.Context(), audit.Event{
+				ActionType: "graph.built", ResourceType: "project", ResourceID: projectID,
+				Actor: "user", Metadata: map[string]any{"node_count": len(nodes), "edge_count": len(edges)},
+			}); err != nil {
+				deps.Logger.Error().Err(err).Msg("recording graph.built audit event failed")
 			}
 		}
 

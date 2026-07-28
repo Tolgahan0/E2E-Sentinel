@@ -9,7 +9,7 @@ previous one's acceptance criteria are demonstrated (spec §33).
 | 0 | Foundation | **Done** |
 | 1 | Project & Repository Discovery | **Done** |
 | 2 | Docker Compose Discovery | **Done** |
-| 3 | Application Graph | Not started |
+| 3 | Application Graph | **Done** |
 | 4 | Test Planning | Not started |
 | 5 | Playwright Runner | Not started |
 | 6 | AI Providers | Not started |
@@ -88,8 +88,42 @@ against API responses and container logs; Docker-unavailable state
 degrades gracefully (dedicated test + manual verification with the
 socket un-mounted).
 
-## Next: Phase 3 — Application Graph
+## Phase 3 — Application Graph (done)
 
-Per spec §25 Phase 3: graph node/edge model, route extraction (Next.js /
-Express / Go routers), OpenAPI import, runtime-to-source correlation,
-graph UI with evidence drawer and confidence display.
+- `internal/routes`: best-effort route inventory. Next.js App Router file
+  conventions (`page.tsx` / `route.ts`, route groups `(...)` excluded from
+  the URL, exported `GET`/`POST`/... detected via regex) and OpenAPI
+  `paths:` declarations are high confidence; regex-matched
+  Express/Go-chi-gin-fiber/Flask-FastAPI router calls in arbitrary source
+  are medium confidence — a regex can't fully understand the language
+  it's scanning, so it's never presented as more certain than that.
+  Reuses `discovery.Walk` (the same symlink-safe, skip-dir traversal as
+  repository scanning) rather than re-implementing it — refactoring that
+  out caught a real pre-existing bug where a deleted/inaccessible project
+  root silently produced zero findings instead of an error.
+- `internal/graph`: `Node`/`Edge` entities (spec §6.4–§6.5) built by
+  correlating routes and services: `depends_on` edges from explicit
+  compose declarations (high confidence), `served_by` edges only when
+  exactly one non-infrastructure service exists (ambiguous otherwise —
+  no edge beats a wrong one), `calls` edges from literal `fetch()`/
+  `axios()` URLs in page source matched against known routes (medium
+  confidence). `ReplaceGraph` deletes-then-inserts a project's full graph
+  per discovery run, so it never accumulates duplicates.
+- API: `GET /projects/{id}/graph`, populated as part of
+  `POST /projects/{id}/discover`. Web: Application Map page — node-type
+  filter, label search, and a per-edge evidence drawer. A zoomable
+  graphical canvas (React Flow) is deferred; the full node/edge/evidence/
+  confidence data model is already exposed via a list-based UI.
+
+Acceptance criteria (spec) — verified: the spec's own example chain
+(`Login Page -> POST /api/v1/auth/login -> Auth Handler`) reproduces
+end-to-end against a live Postgres-backed API and through the web proxy;
+every edge carries evidence; low-confidence edges are visibly marked;
+repeated discovery does not duplicate the graph.
+
+## Next: Phase 4 — Test Planning
+
+Per spec §25 Phase 4: risk model, test category engine, suggested
+scenarios, approval workflow, manual editing, confidence coverage view,
+AI and no-AI planning (deterministic rules only, since Phase 6/AI
+providers doesn't exist yet).

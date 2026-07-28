@@ -17,6 +17,7 @@ import (
 	"e2e-sentinel/apps/api/internal/discovery"
 	"e2e-sentinel/apps/api/internal/dockerclient"
 	"e2e-sentinel/apps/api/internal/environments"
+	"e2e-sentinel/apps/api/internal/graph"
 	"e2e-sentinel/apps/api/internal/httpserver"
 	"e2e-sentinel/apps/api/internal/logging"
 	"e2e-sentinel/apps/api/internal/projects"
@@ -98,6 +99,7 @@ func run(migrateOnly bool) error {
 		Environments: environments.NewPostgresStore(pgPool),
 		Discovery:    discovery.NewPostgresStore(pgPool),
 		Services:     services.NewPostgresStore(pgPool),
+		Graph:        graph.NewPostgresStore(pgPool),
 		Docker:       dockerClient,
 		Logger:       logger,
 	})

@@ -2,94 +2,32 @@ package discovery
 
 import (
 	"encoding/json"
-	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"e2e-sentinel/apps/api/internal/projects"
 )
-
-// Limits bound how much of a repository a single scan will walk, so a
-// pathological or enormous tree can't turn discovery into a
-// denial-of-service against E2E Sentinel itself.
-const (
-	maxDepth       = 10
-	maxEntriesSeen = 50_000
-)
-
-// skipDirs are never descended into: dependency/build output directories
-// carry no discovery signal and are typically enormous.
-var skipDirs = map[string]bool{
-	"node_modules": true, ".git": true, "vendor": true, "dist": true,
-	"build": true, ".next": true, "target": true, ".venv": true,
-	"venv": true, "__pycache__": true, ".turbo": true, "coverage": true,
-	".cache": true, "bin": true, "obj": true, ".idea": true, ".vscode": true,
-}
 
 // Scan walks root (which must already be validated via
 // projects.ValidateRepositoryPath) and returns deterministic findings.
 // It never follows a symlink whose real target falls outside root.
 func Scan(root string) ([]Finding, error) {
 	c := newCollector()
-	seen := 0
 
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			// A single unreadable entry (permissions, race with a
-			// deletion) must not abort the whole scan.
-			if d != nil && d.IsDir() {
-				return fs.SkipDir
-			}
-			return nil
+	err := Walk(root, func(rel string, isDir bool) error {
+		name := filepath.Base(rel)
+		if isDir {
+			classifyDir(c, root, rel, name)
+		} else {
+			classifyFile(c, root, rel, name)
 		}
-
-		seen++
-		if seen > maxEntriesSeen {
-			return fs.SkipAll
-		}
-
-		rel, relErr := filepath.Rel(root, path)
-		if relErr != nil {
-			return nil
-		}
-		rel = filepath.ToSlash(rel)
-
-		if d.Type()&fs.ModeSymlink != 0 {
-			resolved, symErr := filepath.EvalSymlinks(path)
-			if symErr != nil || !projects.WithinRoot(root, resolved) {
-				return nil
-			}
-		}
-
-		if d.IsDir() {
-			if rel != "." && (skipDirs[d.Name()] || strings.HasPrefix(d.Name(), ".") && d.Name() != ".github" && d.Name() != ".maestro" && d.Name() != ".detox") {
-				return fs.SkipDir
-			}
-			if depth(rel) > maxDepth {
-				return fs.SkipDir
-			}
-			classifyDir(c, root, rel, d.Name())
-			return nil
-		}
-
-		classifyFile(c, root, rel, d.Name())
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("discovery: scanning %q: %w", root, err)
+		return nil, err
 	}
 
 	return c.findings(), nil
-}
-
-func depth(rel string) int {
-	if rel == "." {
-		return 0
-	}
-	return strings.Count(rel, "/") + 1
 }
 
 func classifyDir(c *collector, root, rel, name string) {

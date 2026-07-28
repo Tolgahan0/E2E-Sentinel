@@ -6,7 +6,7 @@ and §23 for the full target model; this file states what's true *today*.
 [docs/THREAT_MODEL.md](THREAT_MODEL.md) covers threat areas in more depth
 as each phase introduces the surface they apply to.
 
-## Current state (Phases 0–2)
+## Current state (Phases 0–3)
 
 - **Target-repository access is read-only and path-validated.**
   `internal/projects.ValidateRepositoryPath` resolves the caller-supplied
@@ -21,6 +21,12 @@ as each phase introduces the surface they apply to.
   classify them. Both properties (no traversal, no symlink escape) are
   covered by dedicated tests in `internal/projects` and
   `internal/discovery`.
+- **Route extraction reads source, never executes it.**
+  `internal/routes.Extract` reads `.js`/`.ts`/`.go`/`.py` file *contents*
+  (regex-matched, not parsed/evaluated) to find router calls, and reuses
+  the exact same symlink-safe, skip-dir traversal as repository
+  discovery (`discovery.Walk`) rather than a separate implementation —
+  one walker to keep safe, not two.
 - **Docker access is read-only, minimal, and optional.**
   `internal/dockerclient` implements exactly two Docker Engine API calls
   (`/_ping`, `/containers/json`) over the Unix socket — not the full

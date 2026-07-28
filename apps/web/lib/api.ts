@@ -94,6 +94,34 @@ export interface ServicesResponse {
   services: DiscoveredService[] | null;
 }
 
+export interface GraphNode {
+  id: string;
+  node_type: string;
+  label: string;
+  source_reference: string;
+  runtime_reference: string;
+  metadata: Record<string, unknown>;
+  confidence: 'high' | 'medium' | 'low';
+}
+
+export interface GraphEdge {
+  id: string;
+  source_node_id: string;
+  target_node_id: string;
+  source_node_type: string;
+  source_label: string;
+  target_node_type: string;
+  target_label: string;
+  relation_type: string;
+  evidence: Record<string, unknown>;
+  confidence: 'high' | 'medium' | 'low';
+}
+
+export interface GraphResponse {
+  nodes: GraphNode[] | null;
+  edges: GraphEdge[] | null;
+}
+
 /**
  * fetchJSON calls a same-origin /api/* route (a server-side Route Handler
  * that proxies to sentinel-api, reading SENTINEL_API_URL at request time)

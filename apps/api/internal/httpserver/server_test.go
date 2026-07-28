@@ -11,6 +11,7 @@ import (
 	"e2e-sentinel/apps/api/internal/audit"
 	"e2e-sentinel/apps/api/internal/discovery"
 	"e2e-sentinel/apps/api/internal/environments"
+	"e2e-sentinel/apps/api/internal/graph"
 	"e2e-sentinel/apps/api/internal/projects"
 	"e2e-sentinel/apps/api/internal/services"
 )
@@ -28,6 +29,7 @@ func newTestDeps(pgErr, redisErr error) Dependencies {
 		Environments: environments.NewMemoryStore(),
 		Discovery:    discovery.NewMemoryStore(),
 		Services:     services.NewMemoryStore(),
+		Graph:        graph.NewMemoryStore(),
 		Docker:       nil, // no Docker daemon in unit tests; must degrade gracefully
 	}
 }
