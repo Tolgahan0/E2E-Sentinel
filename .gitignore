@@ -1,0 +1,23 @@
+# Secrets
+.env
+.env.local
+
+# Go
+apps/api/sentinel
+*.test
+
+# Node / Next.js
+node_modules/
+apps/web/.next/
+apps/web/next-env.d.ts
+apps/web/tsconfig.tsbuildinfo
+
+# OS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+
+# Logs
+*.log

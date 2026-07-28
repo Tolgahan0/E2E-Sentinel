@@ -1,0 +1,25 @@
+{
+  "name": "@e2e-sentinel/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 9090",
+    "build": "next build",
+    "start": "next start -p 9090",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "16.2.12",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "22.13.10",
+    "@types/react": "19.2.11",
+    "@types/react-dom": "19.2.3",
+    "eslint": "9.39.1",
+    "eslint-config-next": "16.2.12",
+    "typescript": "5.9.3"
+  }
+}

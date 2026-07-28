@@ -1,0 +1,76 @@
+# E2E Sentinel
+
+E2E Sentinel is a self-hosted, AI-assisted quality engineering platform. It
+discovers a repository and its runtime architecture, produces a reviewable
+test inventory and risk-based E2E test plan, generates and executes tests
+in isolated runners, correlates failures across layers, and proposes fixes
+as reviewable diffs — never changing source code, infrastructure, or data
+without explicit approval.
+
+> E2E Sentinel analyzes repository structure, runtime services, API
+> schemas, application routes, existing tests, and observed behavior to
+> generate high-confidence test recommendations and evidence-backed
+> failure reports.
+
+This repository is being built incrementally against
+[`E2E_SENTINEL_CODEX_MASTER_SPEC.md`](E2E_SENTINEL_CODEX_MASTER_SPEC.md).
+**Phase 0 — Foundation** is implemented; see [docs/ROADMAP.md](docs/ROADMAP.md)
+for what comes next and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) /
+[ADR 0001](docs/adr/0001-phase0-foundation.md) for the reasoning behind
+Phase 0's specific choices.
+
+## What's implemented (Phase 0)
+
+- Go API (`apps/api`) with structured logging, environment-based config,
+  a PostgreSQL-backed audit log, and `/health` / `/ready` / `/api/v1/audit-events`.
+- A minimal Next.js panel (`apps/web`) on port `9090` with a navigation
+  shell for every section in the spec (most are stub pages pointing at the
+  phase that implements them; Dashboard and Audit Logs are functional).
+- Versioned SQL migrations with a small custom runner.
+- Docker Compose stack: `sentinel-api`, `sentinel-web`, `postgres`, `redis`.
+
+Nothing in Phase 0 reads a target repository, talks to Docker/Kubernetes,
+calls an AI provider, or writes/commits/pushes code anywhere — those are
+reserved for later phases.
+
+## Quick start
+
+```bash
+cp .env.example .env
+# edit .env and set POSTGRES_PASSWORD
+
+make up          # docker compose up -d --build
+```
+
+Then open <http://localhost:9090>.
+
+```bash
+make down        # stop the stack
+```
+
+See [docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md) for running the
+API and web app outside Docker, and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+for deployment notes.
+
+## Repository layout
+
+```text
+apps/api/         Go backend (cmd/sentinel, internal/*)
+apps/web/         Next.js panel
+migrations/       Versioned SQL migrations
+deploy/docker/    Dockerfiles
+tests/integration/  Black-box tests against a running stack
+docs/             Architecture, security, operational docs
+```
+
+## Safety model
+
+E2E Sentinel starts in read-only observation mode and requires explicit,
+action-specific, time-bounded, auditable approval before anything mutating
+happens (writing generated tests, applying patches, restarting services,
+pushing branches, etc.). See [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md)
+and [SECURITY.md](SECURITY.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).

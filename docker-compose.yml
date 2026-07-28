@@ -1,0 +1,67 @@
+name: e2e-sentinel
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sentinel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set, see .env.example}
+      POSTGRES_DB: ${POSTGRES_DB:-sentinel}
+    volumes:
+      - sentinel-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sentinel} -d ${POSTGRES_DB:-sentinel}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  sentinel-api:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SENTINEL_HTTP_ADDR: ":8080"
+      SENTINEL_DATABASE_URL: "postgres://${POSTGRES_USER:-sentinel}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-sentinel}?sslmode=disable"
+      SENTINEL_REDIS_ADDR: "redis:6379"
+      SENTINEL_MIGRATIONS_DIR: "/app/migrations"
+      SENTINEL_LOG_LEVEL: ${SENTINEL_LOG_LEVEL:-info}
+      SENTINEL_ENVIRONMENT: ${SENTINEL_ENVIRONMENT:-local}
+    volumes:
+      - ./migrations:/app/migrations:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+
+  sentinel-web:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.web
+    restart: unless-stopped
+    depends_on:
+      - sentinel-api
+    environment:
+      SENTINEL_API_URL: "http://sentinel-api:8080"
+    ports:
+      - "9090:9090"
+
+volumes:
+  sentinel-postgres-data:

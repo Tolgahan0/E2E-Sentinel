@@ -1,0 +1,134 @@
+// Command sentinel is the E2E Sentinel API process.
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"e2e-sentinel/apps/api/internal/audit"
+	"e2e-sentinel/apps/api/internal/config"
+	"e2e-sentinel/apps/api/internal/db"
+	"e2e-sentinel/apps/api/internal/httpserver"
+	"e2e-sentinel/apps/api/internal/logging"
+)
+
+func main() {
+	migrateOnly := flag.Bool("migrate-only", false, "apply pending migrations and exit, without starting the HTTP server")
+	flag.Parse()
+
+	if err := run(*migrateOnly); err != nil {
+		os.Exit(1)
+	}
+}
+
+func run(migrateOnly bool) error {
+	cfg, err := config.Load(os.Getenv)
+	if err != nil {
+		// Config validation errors happen before a logger exists; print
+		// to stderr directly. cfg never contains a hard-coded secret
+		// default, so there is nothing sensitive to accidentally print
+		// here — only the names of missing variables.
+		println(err.Error())
+		return err
+	}
+
+	logger := logging.New(os.Stdout, cfg.LogLevel)
+	logger.Info().Str("environment", cfg.Environment).Msg("starting e2e-sentinel api")
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	pgPool, err := db.NewPostgresPool(ctx, cfg.DatabaseURL)
+	if err != nil {
+		logger.Error().Err(err).Msg("connecting to postgres failed")
+		return err
+	}
+	defer pgPool.Close()
+
+	appliedMigrations, err := db.Migrate(ctx, pgPool, cfg.MigrationsDir)
+	if err != nil {
+		logger.Error().Err(err).Msg("running migrations failed")
+		return err
+	}
+	logger.Info().Strs("applied_migrations", appliedMigrations).Msg("migrations up to date")
+
+	if migrateOnly {
+		return nil
+	}
+
+	redisClient, err := db.NewRedisClient(ctx, cfg.RedisAddr, cfg.RedisPassword)
+	if err != nil {
+		logger.Error().Err(err).Msg("connecting to redis failed")
+		return err
+	}
+	defer redisClient.Close()
+
+	recorder := audit.NewPostgresRecorder(pgPool)
+	if err := recorder.Record(ctx, audit.Event{
+		ActionType:   "system.startup",
+		ResourceType: "process",
+		Actor:        "system",
+		Metadata:     map[string]any{"environment": cfg.Environment},
+	}); err != nil {
+		logger.Error().Err(err).Msg("recording startup audit event failed")
+		return err
+	}
+
+	router := httpserver.NewRouter(httpserver.Dependencies{
+		Postgres: httpserver.PostgresPinger{Pool: pgPool},
+		Redis:    httpserver.RedisPinger{Client: redisClient},
+		Audit:    recorder,
+		Logger:   logger,
+	})
+
+	server := &http.Server{
+		Addr:              cfg.HTTPAddr,
+		Handler:           router,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	serveErr := make(chan error, 1)
+	go func() {
+		logger.Info().Str("addr", cfg.HTTPAddr).Msg("http server listening")
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serveErr <- err
+			return
+		}
+		serveErr <- nil
+	}()
+
+	select {
+	case <-ctx.Done():
+		logger.Info().Msg("shutdown signal received")
+	case err := <-serveErr:
+		if err != nil {
+			logger.Error().Err(err).Msg("http server failed")
+			return err
+		}
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+	defer cancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		logger.Error().Err(err).Msg("graceful shutdown failed")
+		return err
+	}
+
+	if err := recorder.Record(context.Background(), audit.Event{
+		ActionType:   "system.shutdown",
+		ResourceType: "process",
+		Actor:        "system",
+	}); err != nil {
+		logger.Error().Err(err).Msg("recording shutdown audit event failed")
+	}
+
+	logger.Info().Msg("shutdown complete")
+	return nil
+}
