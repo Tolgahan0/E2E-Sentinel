@@ -12,6 +12,7 @@ import (
 	"e2e-sentinel/apps/api/internal/discovery"
 	"e2e-sentinel/apps/api/internal/environments"
 	"e2e-sentinel/apps/api/internal/projects"
+	"e2e-sentinel/apps/api/internal/services"
 )
 
 type fakePinger struct{ err error }
@@ -26,6 +27,8 @@ func newTestDeps(pgErr, redisErr error) Dependencies {
 		Projects:     projects.NewMemoryStore(),
 		Environments: environments.NewMemoryStore(),
 		Discovery:    discovery.NewMemoryStore(),
+		Services:     services.NewMemoryStore(),
+		Docker:       nil, // no Docker daemon in unit tests; must degrade gracefully
 	}
 }
 

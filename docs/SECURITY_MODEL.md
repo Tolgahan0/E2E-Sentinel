@@ -6,7 +6,7 @@ and §23 for the full target model; this file states what's true *today*.
 [docs/THREAT_MODEL.md](THREAT_MODEL.md) covers threat areas in more depth
 as each phase introduces the surface they apply to.
 
-## Current state (Phases 0–1)
+## Current state (Phases 0–2)
 
 - **Target-repository access is read-only and path-validated.**
   `internal/projects.ValidateRepositoryPath` resolves the caller-supplied
@@ -21,8 +21,20 @@ as each phase introduces the surface they apply to.
   classify them. Both properties (no traversal, no symlink escape) are
   covered by dedicated tests in `internal/projects` and
   `internal/discovery`.
-- **No Docker/Kubernetes API access.** `sentinel-api` never talks to the
-  Docker daemon or a Kubernetes API server yet (Phase 2, Phase 10).
+- **Docker access is read-only, minimal, and optional.**
+  `internal/dockerclient` implements exactly two Docker Engine API calls
+  (`/_ping`, `/containers/json`) over the Unix socket — not the full
+  Docker SDK — so a bug here has a deliberately small blast radius. The
+  socket is **not mounted by default** in `docker-compose.yml` (spec
+  §24.4: mounting it grants extensive host capability); every
+  `dockerclient` method returns `ErrUnavailable` when it's absent, and
+  callers treat that as a normal, expected state (a service still gets
+  recorded from its compose declaration, just with `status: "unknown"`).
+  Compose *files* are parsed directly as YAML (`internal/compose`) —
+  never via a `docker compose` subprocess — which avoids the
+  command-injection surface a shell-out would introduce (spec §23.3) and
+  discards environment variable *values* before they ever leave the
+  parser (spec §7.4). No Kubernetes API access yet (Phase 10).
 - **No AI provider access.** No outbound calls to any LLM provider exist
   yet.
 - **Secrets.** `POSTGRES_PASSWORD` has no default and must be supplied via

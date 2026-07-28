@@ -53,6 +53,12 @@ services:
       # then use /workspace/<name> as a project's repository_path. See
       # docs/LOCAL_DEVELOPMENT.md.
       - ${SENTINEL_WORKSPACE:-./workspace}:/workspace:ro
+      # Uncomment to enable LIVE container status in Docker discovery
+      # (running/health, actual bound ports). Off by default: mounting
+      # the Docker socket grants extensive host capability — read
+      # docs/DOCKER_DISCOVERY.md before enabling this, and prefer a
+      # restricted socket proxy over the direct mount shown here.
+      # - /var/run/docker.sock:/var/run/docker.sock:ro
     ports:
       - "127.0.0.1:8080:8080"
 

@@ -17,6 +17,7 @@ import (
 	"e2e-sentinel/apps/api/internal/discovery"
 	"e2e-sentinel/apps/api/internal/environments"
 	"e2e-sentinel/apps/api/internal/projects"
+	"e2e-sentinel/apps/api/internal/services"
 )
 
 // Pinger checks connectivity to a dependency. Implemented by thin adapters
@@ -35,7 +36,11 @@ type Dependencies struct {
 	Projects     projects.Store
 	Environments environments.Store
 	Discovery    discovery.Store
-	Logger       zerolog.Logger
+	Services     services.Store
+	// Docker is optional: nil means "no Docker integration configured",
+	// handled the same as an unreachable daemon (spec §25 Phase 2).
+	Docker DockerLister
+	Logger zerolog.Logger
 }
 
 // NewRouter builds the chi router for the API.
@@ -60,6 +65,7 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Post("/discover", handleDiscoverProject(deps))
 				r.Get("/discovery", handleGetDiscovery(deps))
 				r.Get("/environments", handleListEnvironments(deps))
+				r.Get("/services", handleListServices(deps))
 			})
 		})
 

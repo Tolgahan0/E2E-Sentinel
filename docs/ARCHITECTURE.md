@@ -25,10 +25,14 @@ apps/api (Go, chi router)
   +-- internal/projects      Project entity, repository-path validation
   +-- internal/environments  Environment entity, restrictive classification
   +-- internal/discovery     Deterministic repository scanner
+  +-- internal/compose       Docker Compose file parser (pure, no subprocess)
+  +-- internal/dockerclient  Minimal read-only Docker Engine API client
+  +-- internal/services      DiscoveredService entity
   +-- internal/httpserver    HTTP handlers
   |
   +-- PostgreSQL
   +-- Redis
+  +-- Docker daemon (optional, Unix socket)
 ```
 
 Future phases add sibling packages under `internal/` — `graph/`,
@@ -81,6 +85,33 @@ repositories must be mounted in. `docker-compose.yml` mounts
 `./workspace` (gitignored) into the container at `/workspace:ro`; see
 [docs/LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md#adding-a-project-repository-discovery).
 
+### Docker Compose service discovery (Phase 2)
+
+`POST /projects/{id}/discover` also runs this, right after the repository
+scan:
+
+```text
+for each docker/docker_compose finding (from discovery.Scan):
+  compose.ParseFile(path)              [pure YAML parse, no subprocess]
+    -> []compose.Service (image, ports, depends_on, env var NAMES only, ...)
+  services.FromCompose(...)            [ClassifyKind: image name -> high
+                                         confidence; port/build presence ->
+                                         medium confidence heuristic]
+  if dockerClient reachable (Ping succeeds):
+    ListContainers() -> match by com.docker.compose.service label
+    -> services.ApplyRuntimeStatus(...)  [live state, container name, ports]
+  else:
+    service keeps metadata.status = "unknown" ("not observed", not "down")
+services.Store.Upsert(...)             [keyed by (project_id, name) — idempotent]
+  -> audit: service.discovered
+```
+
+`internal/dockerclient` talks to the Docker Engine API over
+`/var/run/docker.sock` using exactly two endpoints (`/_ping`,
+`/containers/json`) — not the full Docker SDK — and is never required:
+`docker-compose.yml` does not mount the socket by default (see
+[docs/DOCKER_DISCOVERY.md](DOCKER_DISCOVERY.md)).
+
 ## Data model
 
 - `schema_migrations` — tracks which migration files have been applied.
@@ -90,6 +121,9 @@ repositories must be mounted in. `docker-compose.yml` mounts
   (`{"paths": [...], ...}`); `confidence` is constrained to
   `high`/`medium`/`low` and must never be presented as more certain than
   the detection method warrants (spec §8.2, §9.4).
+- `discovered_services` — see `migrations/0003_discovered_services.sql`.
+  Upserted by `(project_id, name)`; `metadata` carries env var *names*
+  (never values), profiles, and live status when observed.
 
 ## Configuration
 
@@ -102,7 +136,8 @@ validation at startup and no silent defaults for security-relevant values
 
 Per spec §2.2 and §34, there is still no code path that:
 
-- talks to the Docker or Kubernetes API (Phases 2, 10),
+- talks to the Kubernetes API (Phase 10) — Docker's is now supported,
+  read-only, and optional (Phase 2),
 - talks to any AI provider (Phase 6),
 - writes, commits, or pushes code anywhere (Phase 8),
 - executes anything found inside a scanned repository — discovery only

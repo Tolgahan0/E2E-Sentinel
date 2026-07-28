@@ -2,13 +2,73 @@
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { fetchJSON, mutateJSON, type DiscoveryFinding, type DiscoveryResponse, type Project, type ProjectsResponse } from '@/lib/api';
+import {
+  fetchJSON,
+  mutateJSON,
+  type DiscoveredService,
+  type DiscoveryFinding,
+  type DiscoveryResponse,
+  type Project,
+  type ProjectsResponse,
+  type ServicesResponse,
+} from '@/lib/api';
 
 const CONFIDENCE_CLASS: Record<DiscoveryFinding['confidence'], string> = {
   high: 'sentinel-status-ok',
   medium: 'sentinel-status-unknown',
   low: 'sentinel-status-bad',
 };
+
+function ServiceStatusBadge({ service }: { service: DiscoveredService }) {
+  const status = service.metadata.status;
+  if (status === 'running') return <span className="sentinel-status-ok">running</span>;
+  if (status === 'unknown' || !status) return <span className="sentinel-status-unknown">not observed</span>;
+  return <span className="sentinel-status-bad">{status}</span>;
+}
+
+function ServicesTable({ services }: { services: DiscoveredService[] }) {
+  if (services.length === 0) {
+    return (
+      <p className="sentinel-status-unknown">
+        No Docker Compose services found. If this project uses Compose, run discovery again after
+        adding a docker-compose.yml.
+      </p>
+    );
+  }
+
+  return (
+    <table className="sentinel-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Kind</th>
+          <th>Image</th>
+          <th>Ports</th>
+          <th>Depends on</th>
+          <th>Status</th>
+          <th>Confidence</th>
+        </tr>
+      </thead>
+      <tbody>
+        {services.map((s) => (
+          <tr key={s.id}>
+            <td>{s.name}</td>
+            <td>{s.kind}</td>
+            <td>
+              <code>{s.image || (s.metadata.has_build ? 'built locally' : '—')}</code>
+            </td>
+            <td>{s.ports.length > 0 ? s.ports.join(', ') : '—'}</td>
+            <td>{s.dependencies.length > 0 ? s.dependencies.join(', ') : '—'}</td>
+            <td>
+              <ServiceStatusBadge service={s} />
+            </td>
+            <td className={CONFIDENCE_CLASS[s.confidence]}>{s.confidence}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
 
 function DiscoveryContent() {
   const searchParams = useSearchParams();
@@ -17,6 +77,7 @@ function DiscoveryContent() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedID, setSelectedID] = useState(initialProjectID);
   const [findings, setFindings] = useState<DiscoveryFinding[] | null>(null);
+  const [services, setServices] = useState<DiscoveredService[]>([]);
   const [status, setStatus] = useState<'idle' | 'scanning' | 'not_found'>('idle');
 
   useEffect(() => {
@@ -41,6 +102,9 @@ function DiscoveryContent() {
       setFindings(res.findings ?? []);
       setStatus('idle');
     });
+    fetchJSON<ServicesResponse>(`/api/v1/projects/${selectedID}/services`).then((res) => {
+      setServices(res?.services ?? []);
+    });
   }, [selectedID]);
 
   async function runDiscovery() {
@@ -50,6 +114,8 @@ function DiscoveryContent() {
     if (result.ok && result.data) {
       setFindings(result.data.findings ?? []);
     }
+    const servicesRes = await fetchJSON<ServicesResponse>(`/api/v1/projects/${selectedID}/services`);
+    setServices(servicesRes?.services ?? []);
     setStatus('idle');
   }
 
@@ -91,6 +157,18 @@ function DiscoveryContent() {
           {status === 'scanning' ? 'Scanning…' : 'Run discovery'}
         </button>
       </div>
+
+      {selectedID && (services.length > 0 || (findings && findings.length > 0)) && (
+        <div className="sentinel-card" style={{ marginTop: '1rem' }}>
+          <h3>Docker Compose services</h3>
+          <p className="sentinel-status-unknown" style={{ fontSize: '0.85rem' }}>
+            Running status requires the Docker daemon to be reachable from sentinel-api (see
+            docs/DOCKER_DISCOVERY.md) — otherwise every service shows &quot;not observed&quot;, which is
+            distinct from confirming it isn&apos;t running.
+          </p>
+          <ServicesTable services={services} />
+        </div>
+      )}
 
       <div className="sentinel-card" style={{ marginTop: '1rem' }}>
         {projects.length === 0 ? (

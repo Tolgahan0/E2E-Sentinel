@@ -15,10 +15,12 @@ import (
 	"e2e-sentinel/apps/api/internal/config"
 	"e2e-sentinel/apps/api/internal/db"
 	"e2e-sentinel/apps/api/internal/discovery"
+	"e2e-sentinel/apps/api/internal/dockerclient"
 	"e2e-sentinel/apps/api/internal/environments"
 	"e2e-sentinel/apps/api/internal/httpserver"
 	"e2e-sentinel/apps/api/internal/logging"
 	"e2e-sentinel/apps/api/internal/projects"
+	"e2e-sentinel/apps/api/internal/services"
 )
 
 func main() {
@@ -83,6 +85,11 @@ func run(migrateOnly bool) error {
 		return err
 	}
 
+	// Docker discovery is optional: this client degrades gracefully (see
+	// internal/dockerclient) when the socket isn't mounted or reachable,
+	// so it's always safe to construct regardless of environment.
+	dockerClient := dockerclient.New(cfg.DockerSocketPath)
+
 	router := httpserver.NewRouter(httpserver.Dependencies{
 		Postgres:     httpserver.PostgresPinger{Pool: pgPool},
 		Redis:        httpserver.RedisPinger{Client: redisClient},
@@ -90,6 +97,8 @@ func run(migrateOnly bool) error {
 		Projects:     projects.NewPostgresStore(pgPool),
 		Environments: environments.NewPostgresStore(pgPool),
 		Discovery:    discovery.NewPostgresStore(pgPool),
+		Services:     services.NewPostgresStore(pgPool),
+		Docker:       dockerClient,
 		Logger:       logger,
 	})
 

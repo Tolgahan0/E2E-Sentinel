@@ -14,7 +14,7 @@ without explicit approval.
 
 This repository is being built incrementally against
 [`E2E_SENTINEL_CODEX_MASTER_SPEC.md`](E2E_SENTINEL_CODEX_MASTER_SPEC.md).
-**Phases 0–1** are implemented; see [docs/ROADMAP.md](docs/ROADMAP.md)
+**Phases 0–2** are implemented; see [docs/ROADMAP.md](docs/ROADMAP.md)
 for what comes next and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) /
 [ADR 0001](docs/adr/0001-phase0-foundation.md) for the reasoning behind
 the foundational choices.
@@ -32,13 +32,20 @@ the foundational choices.
 - **Environments**: every project gets a default environment; classifying
   it `production` or `unknown` forces mutation/load-test/security-scan
   permissions off in the same request (spec §2.6).
+- **Docker Compose service discovery**: compose files found during
+  discovery are parsed directly (no `docker compose` subprocess) into
+  declared services — image, ports, dependencies, env var *names* only.
+  If the Docker daemon is reachable (never required, and not mounted by
+  default), services are enriched with live running status; otherwise
+  they show as "not observed", never as a false "not running".
 - A Next.js panel (`apps/web`) on port `9090`: Dashboard, Audit Logs,
-  Projects, and Discovery are functional; the remaining nav sections are
-  stub pages pointing at the phase that implements them.
+  Projects, and Discovery (findings + services) are functional; the
+  remaining nav sections are stub pages pointing at the phase that
+  implements them.
 - Versioned SQL migrations with a small custom runner.
 - Docker Compose stack: `sentinel-api`, `sentinel-web`, `postgres`, `redis`.
 
-Nothing yet talks to Docker/Kubernetes, calls an AI provider, or
+Nothing yet talks to Kubernetes, calls an AI provider, or
 writes/commits/pushes code anywhere — those are reserved for later
 phases. Discovery only *reads* file names/contents to classify them; it
 never executes anything in the scanned repository.

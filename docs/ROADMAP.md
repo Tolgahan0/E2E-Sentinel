@@ -8,7 +8,7 @@ previous one's acceptance criteria are demonstrated (spec §33).
 |---|---|---|
 | 0 | Foundation | **Done** |
 | 1 | Project & Repository Discovery | **Done** |
-| 2 | Docker Compose Discovery | Not started |
+| 2 | Docker Compose Discovery | **Done** |
 | 3 | Application Graph | Not started |
 | 4 | Test Planning | Not started |
 | 5 | Playwright Runner | Not started |
@@ -55,9 +55,41 @@ escape test + system-root denylist); repeated discovery is idempotent
 (same finding set, no duplicate rows). Verified both via unit/integration
 tests and manually against a live Postgres-backed API.
 
-## Next: Phase 2 — Docker Compose Discovery
+## Phase 2 — Docker Compose Discovery (done)
 
-Per spec §25 Phase 2: Compose parser, running-container detection,
-service relationships, ports/networks/health, environment variable
-*names* only (never values), discovery UI updates. Docker-unavailable
-state must degrade gracefully.
+- `internal/compose`: pure YAML parser for Docker Compose files (no
+  `docker compose` subprocess — avoids the command-injection surface a
+  shell-out would introduce, spec §23.3). Handles both short/long syntax
+  for `environment`, `depends_on`, `ports`, `command`/`entrypoint`.
+  Environment variable *values* are discarded before leaving the parser —
+  only names are ever kept (spec §7.4).
+- `internal/dockerclient`: minimal read-only Docker Engine API client
+  (Unix socket, two endpoints: `/_ping`, `/containers/json`) rather than
+  the full Docker SDK, keeping the capability surface small (spec §7.3).
+  Every method returns `ErrUnavailable` when the socket is missing or
+  unreachable — never a fatal error.
+- `internal/services`: `DiscoveredService` entity (spec §6.3) upserted by
+  `(project_id, name)` so re-discovery updates in place. `ClassifyKind`
+  infers kind from image name (high confidence) or port/build presence
+  (medium confidence) — never overclaimed.
+- Docker socket is **not** mounted by default (spec §24.4); when absent,
+  every service still gets recorded from the compose file with
+  `status: "unknown"`, rendered as "not observed" (distinct from "not
+  running"). See [docs/DOCKER_DISCOVERY.md](DOCKER_DISCOVERY.md) for how
+  to opt in to live status.
+- API: `GET /projects/{id}/services` (populated as part of
+  `POST /projects/{id}/discover`). Web: Discovery page shows a services
+  table alongside repository findings.
+
+Acceptance criteria (spec) — verified: Compose services appear in the
+panel; running status is visible when the daemon is reachable; secret
+values are never returned (only env var names) — confirmed by grep
+against API responses and container logs; Docker-unavailable state
+degrades gracefully (dedicated test + manual verification with the
+socket un-mounted).
+
+## Next: Phase 3 — Application Graph
+
+Per spec §25 Phase 3: graph node/edge model, route extraction (Next.js /
+Express / Go routers), OpenAPI import, runtime-to-source correlation,
+graph UI with evidence drawer and confidence display.

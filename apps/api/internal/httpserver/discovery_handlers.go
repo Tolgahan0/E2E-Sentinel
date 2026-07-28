@@ -81,6 +81,24 @@ func handleDiscoverProject(deps Dependencies) http.HandlerFunc {
 			deps.Logger.Error().Err(err).Msg("recording repository.scanned audit event failed")
 		}
 
+		if deps.Services != nil {
+			discovered := discoverServices(r.Context(), project.RepositoryPath, findings, deps.Docker, deps.Logger)
+			for _, svc := range discovered {
+				svc.ProjectID = projectID
+				if _, err := deps.Services.Upsert(r.Context(), svc); err != nil {
+					deps.Logger.Error().Err(err).Str("service", svc.Name).Msg("upserting discovered service failed")
+				}
+			}
+			if len(discovered) > 0 {
+				if err := deps.Audit.Record(r.Context(), audit.Event{
+					ActionType: "service.discovered", ResourceType: "project", ResourceID: projectID,
+					Actor: "user", Metadata: map[string]any{"service_count": len(discovered)},
+				}); err != nil {
+					deps.Logger.Error().Err(err).Msg("recording service.discovered audit event failed")
+				}
+			}
+		}
+
 		out := make([]findingResponse, 0, len(findings))
 		for _, f := range findings {
 			out = append(out, toFindingResponse(f))

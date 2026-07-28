@@ -69,6 +69,31 @@ export interface DiscoveryResponse {
   findings: DiscoveryFinding[] | null;
 }
 
+export interface DiscoveredService {
+  id: string;
+  name: string;
+  kind: string;
+  runtime: string;
+  source_path: string;
+  container_name: string;
+  image: string;
+  ports: string[];
+  dependencies: string[];
+  metadata: {
+    status?: string;
+    status_text?: string;
+    env_var_names?: string[];
+    profiles?: string[];
+    has_build?: boolean;
+    [key: string]: unknown;
+  };
+  confidence: 'high' | 'medium' | 'low';
+}
+
+export interface ServicesResponse {
+  services: DiscoveredService[] | null;
+}
+
 /**
  * fetchJSON calls a same-origin /api/* route (a server-side Route Handler
  * that proxies to sentinel-api, reading SENTINEL_API_URL at request time)

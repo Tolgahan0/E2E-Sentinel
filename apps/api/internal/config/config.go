@@ -40,6 +40,12 @@ type Config struct {
 
 	// ShutdownTimeout bounds graceful shutdown.
 	ShutdownTimeout time.Duration
+
+	// DockerSocketPath is where the Docker Engine Unix socket is expected.
+	// This has a conventional default (unlike DatabaseURL/RedisAddr) because
+	// Docker discovery is optional and self-degrades when the socket isn't
+	// there — it is never required for the API to function.
+	DockerSocketPath string
 }
 
 // Load reads configuration from environment variables and validates it.
@@ -49,14 +55,15 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 
 	cfg := Config{
-		HTTPAddr:        firstNonEmpty(getenv("SENTINEL_HTTP_ADDR"), ":8080"),
-		DatabaseURL:     strings.TrimSpace(getenv("SENTINEL_DATABASE_URL")),
-		RedisAddr:       strings.TrimSpace(getenv("SENTINEL_REDIS_ADDR")),
-		RedisPassword:   getenv("SENTINEL_REDIS_PASSWORD"),
-		MigrationsDir:   firstNonEmpty(getenv("SENTINEL_MIGRATIONS_DIR"), "migrations"),
-		LogLevel:        firstNonEmpty(strings.ToLower(getenv("SENTINEL_LOG_LEVEL")), "info"),
-		Environment:     firstNonEmpty(getenv("SENTINEL_ENVIRONMENT"), "local"),
-		ShutdownTimeout: 10 * time.Second,
+		HTTPAddr:         firstNonEmpty(getenv("SENTINEL_HTTP_ADDR"), ":8080"),
+		DatabaseURL:      strings.TrimSpace(getenv("SENTINEL_DATABASE_URL")),
+		RedisAddr:        strings.TrimSpace(getenv("SENTINEL_REDIS_ADDR")),
+		RedisPassword:    getenv("SENTINEL_REDIS_PASSWORD"),
+		MigrationsDir:    firstNonEmpty(getenv("SENTINEL_MIGRATIONS_DIR"), "migrations"),
+		LogLevel:         firstNonEmpty(strings.ToLower(getenv("SENTINEL_LOG_LEVEL")), "info"),
+		Environment:      firstNonEmpty(getenv("SENTINEL_ENVIRONMENT"), "local"),
+		ShutdownTimeout:  10 * time.Second,
+		DockerSocketPath: firstNonEmpty(getenv("SENTINEL_DOCKER_SOCKET"), "/var/run/docker.sock"),
 	}
 
 	if raw := getenv("SENTINEL_SHUTDOWN_TIMEOUT_SECONDS"); raw != "" {
