@@ -14,6 +14,9 @@ import (
 	"github.com/rs/zerolog"
 
 	"e2e-sentinel/apps/api/internal/audit"
+	"e2e-sentinel/apps/api/internal/discovery"
+	"e2e-sentinel/apps/api/internal/environments"
+	"e2e-sentinel/apps/api/internal/projects"
 )
 
 // Pinger checks connectivity to a dependency. Implemented by thin adapters
@@ -26,10 +29,13 @@ type Pinger interface {
 // Dependencies are the collaborators the HTTP layer needs. All fields are
 // required.
 type Dependencies struct {
-	Postgres Pinger
-	Redis    Pinger
-	Audit    audit.Recorder
-	Logger   zerolog.Logger
+	Postgres     Pinger
+	Redis        Pinger
+	Audit        audit.Recorder
+	Projects     projects.Store
+	Environments environments.Store
+	Discovery    discovery.Store
+	Logger       zerolog.Logger
 }
 
 // NewRouter builds the chi router for the API.
@@ -44,6 +50,20 @@ func NewRouter(deps Dependencies) http.Handler {
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/audit-events", handleListAuditEvents(deps))
+
+		r.Route("/projects", func(r chi.Router) {
+			r.Post("/", handleCreateProject(deps))
+			r.Get("/", handleListProjects(deps))
+			r.Route("/{projectID}", func(r chi.Router) {
+				r.Get("/", handleGetProject(deps))
+				r.Patch("/", handleUpdateProject(deps))
+				r.Post("/discover", handleDiscoverProject(deps))
+				r.Get("/discovery", handleGetDiscovery(deps))
+				r.Get("/environments", handleListEnvironments(deps))
+			})
+		})
+
+		r.Patch("/environments/{environmentID}", handleUpdateEnvironment(deps))
 	})
 
 	return r

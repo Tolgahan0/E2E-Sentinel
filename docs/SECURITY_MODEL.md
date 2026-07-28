@@ -6,14 +6,23 @@ and §23 for the full target model; this file states what's true *today*.
 [docs/THREAT_MODEL.md](THREAT_MODEL.md) covers threat areas in more depth
 as each phase introduces the surface they apply to.
 
-## Current state (Phase 0)
+## Current state (Phases 0–1)
 
-- **No target-repository access.** Phase 0 never reads, mounts, or writes
-  any repository other than E2E Sentinel's own source. Discovery
-  (Phase 1+) is the first phase that touches a target project, and it is
-  read-only by design (spec §2.2, §3.1).
+- **Target-repository access is read-only and path-validated.**
+  `internal/projects.ValidateRepositoryPath` resolves the caller-supplied
+  path to an absolute, symlink-free path, rejects it if it doesn't exist,
+  isn't a directory, or resolves to a system root (`/`, `/etc`, `/private/etc`,
+  etc. — see `dangerousRoots`); `internal/discovery.Scan` additionally
+  refuses to follow any symlink whose real target falls outside the
+  validated root (`projects.WithinRoot`). Discovery never writes to the
+  scanned repository and never executes anything found in it — it only
+  reads file names and, for a small allowlist of manifest files
+  (`package.json`, `go.mod`, `requirements.txt`, etc.), file contents, to
+  classify them. Both properties (no traversal, no symlink escape) are
+  covered by dedicated tests in `internal/projects` and
+  `internal/discovery`.
 - **No Docker/Kubernetes API access.** `sentinel-api` never talks to the
-  Docker daemon or a Kubernetes API server in Phase 0.
+  Docker daemon or a Kubernetes API server yet (Phase 2, Phase 10).
 - **No AI provider access.** No outbound calls to any LLM provider exist
   yet.
 - **Secrets.** `POSTGRES_PASSWORD` has no default and must be supplied via
@@ -38,7 +47,7 @@ as each phase introduces the surface they apply to.
 Authentication/RBAC, approval workflow enforcement, secret redaction
 pipeline for AI context, Docker/Kubernetes discovery sandboxing, runner
 isolation, and patch-application safety all land in the phases that
-introduce the corresponding feature (Phases 1, 4, 6, 8, 9 — see
+introduce the corresponding feature (Phases 4, 6, 8, 9 — see
 [docs/ROADMAP.md](ROADMAP.md)). Until Phase 9, do not expose this
 deployment beyond a trusted local network.
 

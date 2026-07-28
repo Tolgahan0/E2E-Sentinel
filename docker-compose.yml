@@ -48,6 +48,11 @@ services:
       SENTINEL_ENVIRONMENT: ${SENTINEL_ENVIRONMENT:-local}
     volumes:
       - ./migrations:/app/migrations:ro
+      # Target repositories to discover/test must be reachable inside this
+      # container. Place or symlink them under ./workspace on the host,
+      # then use /workspace/<name> as a project's repository_path. See
+      # docs/LOCAL_DEVELOPMENT.md.
+      - ${SENTINEL_WORKSPACE:-./workspace}:/workspace:ro
     ports:
       - "127.0.0.1:8080:8080"
 

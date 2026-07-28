@@ -12,51 +12,84 @@ Browser
   |
   v
 apps/web (Next.js, :9090)
-  |  /api/v1/* rewritten to sentinel-api
+  |  /api/health, /api/ready, /api/v1/* — Route Handlers proxy to
+  |  sentinel-api, reading SENTINEL_API_URL at REQUEST time (not baked
+  |  into the build), so one image works against any deployment.
   v
 apps/api (Go, chi router)
   |
-  +-- internal/config      Environment-based configuration
-  +-- internal/logging     Structured (zerolog) logging
-  +-- internal/db          Postgres pool, Redis client, migration runner
-  +-- internal/audit       Append-only audit event recording
-  +-- internal/httpserver  HTTP handlers: /health, /ready, /api/v1/audit-events
+  +-- internal/config        Environment-based configuration
+  +-- internal/logging       Structured (zerolog) logging
+  +-- internal/db            Postgres pool, Redis client, migration runner
+  +-- internal/audit         Append-only audit event recording
+  +-- internal/projects      Project entity, repository-path validation
+  +-- internal/environments  Environment entity, restrictive classification
+  +-- internal/discovery     Deterministic repository scanner
+  +-- internal/httpserver    HTTP handlers
   |
   +-- PostgreSQL
   +-- Redis
 ```
 
-Future phases add sibling packages under `internal/` — `discovery/`,
-`graph/`, `projects/`, `environments/`, `providers/`, `planning/`,
-`execution/`, `runners/`, `artifacts/`, `failures/`, `fixes/`, `approval/`,
-`secrets/`, `scheduler/`, `telemetry/` — exactly as laid out in spec §5. None
-of these exist yet; Phase 0 intentionally implements only the foundation
-column above.
+Future phases add sibling packages under `internal/` — `graph/`,
+`providers/`, `planning/`, `execution/`, `runners/`, `artifacts/`,
+`failures/`, `fixes/`, `approval/`, `secrets/`, `scheduler/`,
+`telemetry/` — exactly as laid out in spec §5.
 
-## Request flow (Phase 0)
+## Request flow
 
 1. Browser loads `apps/web` on `:9090`.
-2. The dashboard page calls `/api/v1/health` and `/api/v1/ready` through
-   Next.js's rewrite rule (`next.config.js`), which forwards to
-   `sentinel-api:8080` inside the Docker network (or `localhost:8080` in
-   local dev).
-3. `apps/api` answers `/health` (liveness, no dependency checks) and
-   `/ready` (checks Postgres and Redis connectivity) and records nothing on
-   these read paths (they are not "meaningful operations" per spec §2.7).
-4. On process start and stop, `apps/api` writes an `audit_events` row via
-   `internal/audit`. `GET /api/v1/audit-events` returns the most recent
-   events, paginated, for the dashboard.
+2. Pages call same-origin `/api/*` paths. Each is a Next.js Route Handler
+   (`app/api/**/route.ts`) that forwards to `sentinel-api` and streams the
+   response back — the browser never talks to `sentinel-api` directly.
+3. `apps/api` answers `/health` (liveness, no dependency checks), `/ready`
+   (checks Postgres/Redis), and the `/api/v1/*` resource endpoints below.
 
-## Data model (Phase 0)
+## Domain flow: adding a project and running discovery (Phase 1)
 
-Only two tables exist so far:
+```text
+POST /api/v1/projects {name, repository_path}
+  -> projects.ValidateRepositoryPath: resolve absolute, resolve symlinks,
+     reject nonexistent/non-directory/system-root paths
+  -> projects.Store.Create (slug auto-generated, uniqued)
+  -> environments.Store.Create (default environment, classification=local)
+  -> audit: project.added
+
+POST /api/v1/projects/{id}/discover
+  -> discovery.Scan(project.RepositoryPath)   [read-only, symlink-safe walk]
+  -> discovery.Store.CompleteRun (findings persisted with evidence)
+  -> projects.Store.SetDiscoveryStatus(completed)
+  -> audit: repository.scanned
+
+PATCH /api/v1/environments/{id} {classification}
+  -> environments.RestrictForClassification: "production"/"unknown"
+     force allow_mutations/allow_load_tests/allow_active_security_scan
+     off unconditionally — the caller cannot set them in the same request
+  -> audit: environment.classification_changed
+```
+
+Discovery is synchronous in Phase 1 (a normal repository scans in
+milliseconds); `internal/discovery.Scan` has no dependency on the HTTP
+layer, so moving it onto the async job system (spec §21) in a later phase
+is a wiring change, not a rewrite.
+
+### Running discovery via Docker Compose
+
+`sentinel-api` scans `repository_path` on its *own* filesystem. When run
+via `docker compose up`, that's the container's filesystem — so target
+repositories must be mounted in. `docker-compose.yml` mounts
+`./workspace` (gitignored) into the container at `/workspace:ro`; see
+[docs/LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md#adding-a-project-repository-discovery).
+
+## Data model
 
 - `schema_migrations` — tracks which migration files have been applied.
-- `audit_events` — append-only; see `migrations/0001_init.sql`. Matches the
-  shape of spec §6 `Approval`/audit fields that are already known
-  (`action_type`, `resource_type`, `resource_id`, `actor`, `metadata`,
-  `created_at`); fields specific to entities that don't exist yet (projects,
-  test runs, etc.) are deferred to the phases that introduce those entities.
+- `audit_events` — append-only; see `migrations/0001_init.sql`.
+- `projects`, `environments`, `discovery_runs`, `discovery_findings` — see
+  `migrations/0002_projects.sql`. `discovery_findings.evidence` is JSONB
+  (`{"paths": [...], ...}`); `confidence` is constrained to
+  `high`/`medium`/`low` and must never be presented as more certain than
+  the detection method warrants (spec §8.2, §9.4).
 
 ## Configuration
 
@@ -65,13 +98,14 @@ validation at startup and no silent defaults for security-relevant values
 (e.g. there is no default database DSN — it must be set explicitly). See
 `.env.example` for the full list.
 
-## What Phase 0 deliberately does not do
+## What's still not implemented
 
-Per spec §2.2 and §34, Phase 0 has no code path that:
+Per spec §2.2 and §34, there is still no code path that:
 
-- reads or mounts a *target* repository (the thing E2E Sentinel will test),
-- talks to the Docker or Kubernetes API,
-- talks to any AI provider,
-- writes, commits, or pushes code anywhere.
+- talks to the Docker or Kubernetes API (Phases 2, 10),
+- talks to any AI provider (Phase 6),
+- writes, commits, or pushes code anywhere (Phase 8),
+- executes anything found inside a scanned repository — discovery only
+  *reads* file names/contents to classify them, it never runs them.
 
-These are reserved extension points for Phases 1–11.
+These are reserved extension points for later phases.

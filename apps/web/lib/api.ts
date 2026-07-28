@@ -21,12 +21,60 @@ export interface AuditEventsResponse {
   events: AuditEvent[] | null;
 }
 
+export interface Project {
+  id: string;
+  name: string;
+  slug: string;
+  repository_path: string;
+  repository_type: string;
+  default_branch: string;
+  discovery_status: 'never_run' | 'running' | 'completed' | 'failed';
+  current_mode: string;
+  last_discovered_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectsResponse {
+  projects: Project[] | null;
+}
+
+export interface Environment {
+  id: string;
+  project_id: string;
+  name: string;
+  type: string;
+  base_url: string;
+  classification: 'local' | 'development' | 'test' | 'staging' | 'production' | 'unknown';
+  is_production: boolean;
+  allow_mutations: boolean;
+  allow_load_tests: boolean;
+  allow_active_security_scan: boolean;
+}
+
+export interface EnvironmentsResponse {
+  environments: Environment[] | null;
+}
+
+export interface DiscoveryFinding {
+  category: string;
+  name: string;
+  path: string;
+  confidence: 'high' | 'medium' | 'low';
+  evidence: Record<string, unknown>;
+}
+
+export interface DiscoveryResponse {
+  discovery_run_id: string;
+  findings: DiscoveryFinding[] | null;
+}
+
 /**
- * fetchJSON calls a same-origin API route (proxied to sentinel-api by
- * next.config.js) and never sends credentials cross-origin. It returns
- * null on any network or non-2xx failure rather than throwing, so page
- * components can render an explicit "unavailable" state instead of
- * crashing the dashboard when the API is down.
+ * fetchJSON calls a same-origin /api/* route (a server-side Route Handler
+ * that proxies to sentinel-api, reading SENTINEL_API_URL at request time)
+ * and never sends credentials cross-origin. It returns null on any
+ * network or non-2xx failure rather than throwing, so page components can
+ * render an explicit "unavailable" state instead of crashing.
  */
 export async function fetchJSON<T>(path: string): Promise<T | null> {
   try {
@@ -37,5 +85,40 @@ export async function fetchJSON<T>(path: string): Promise<T | null> {
     return (await res.json()) as T;
   } catch {
     return null;
+  }
+}
+
+export interface MutationResult<T> {
+  ok: boolean;
+  status: number;
+  data: T | null;
+  error: string | null;
+}
+
+/**
+ * mutateJSON POSTs/PATCHes a JSON body to a same-origin /api/* route and
+ * always resolves (never throws), surfacing the API's error string on
+ * failure so forms can show it inline.
+ */
+export async function mutateJSON<T>(
+  method: 'POST' | 'PATCH',
+  path: string,
+  body?: unknown,
+): Promise<MutationResult<T>> {
+  try {
+    const res = await fetch(path, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+    const data = (await res.json().catch(() => null)) as (T & { error?: string }) | null;
+    return {
+      ok: res.ok,
+      status: res.status,
+      data: res.ok ? data : null,
+      error: !res.ok ? data?.error ?? `request_failed_${res.status}` : null,
+    };
+  } catch {
+    return { ok: false, status: 0, data: null, error: 'network_error' };
   }
 }

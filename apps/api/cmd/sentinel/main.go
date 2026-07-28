@@ -14,8 +14,11 @@ import (
 	"e2e-sentinel/apps/api/internal/audit"
 	"e2e-sentinel/apps/api/internal/config"
 	"e2e-sentinel/apps/api/internal/db"
+	"e2e-sentinel/apps/api/internal/discovery"
+	"e2e-sentinel/apps/api/internal/environments"
 	"e2e-sentinel/apps/api/internal/httpserver"
 	"e2e-sentinel/apps/api/internal/logging"
+	"e2e-sentinel/apps/api/internal/projects"
 )
 
 func main() {
@@ -81,10 +84,13 @@ func run(migrateOnly bool) error {
 	}
 
 	router := httpserver.NewRouter(httpserver.Dependencies{
-		Postgres: httpserver.PostgresPinger{Pool: pgPool},
-		Redis:    httpserver.RedisPinger{Client: redisClient},
-		Audit:    recorder,
-		Logger:   logger,
+		Postgres:     httpserver.PostgresPinger{Pool: pgPool},
+		Redis:        httpserver.RedisPinger{Client: redisClient},
+		Audit:        recorder,
+		Projects:     projects.NewPostgresStore(pgPool),
+		Environments: environments.NewPostgresStore(pgPool),
+		Discovery:    discovery.NewPostgresStore(pgPool),
+		Logger:       logger,
 	})
 
 	server := &http.Server{

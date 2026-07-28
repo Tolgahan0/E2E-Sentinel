@@ -9,6 +9,9 @@ import (
 	"testing"
 
 	"e2e-sentinel/apps/api/internal/audit"
+	"e2e-sentinel/apps/api/internal/discovery"
+	"e2e-sentinel/apps/api/internal/environments"
+	"e2e-sentinel/apps/api/internal/projects"
 )
 
 type fakePinger struct{ err error }
@@ -17,9 +20,12 @@ func (f fakePinger) Ping(ctx context.Context) error { return f.err }
 
 func newTestDeps(pgErr, redisErr error) Dependencies {
 	return Dependencies{
-		Postgres: fakePinger{err: pgErr},
-		Redis:    fakePinger{err: redisErr},
-		Audit:    audit.NewMemoryRecorder(),
+		Postgres:     fakePinger{err: pgErr},
+		Redis:        fakePinger{err: redisErr},
+		Audit:        audit.NewMemoryRecorder(),
+		Projects:     projects.NewMemoryStore(),
+		Environments: environments.NewMemoryStore(),
+		Discovery:    discovery.NewMemoryStore(),
 	}
 }
 

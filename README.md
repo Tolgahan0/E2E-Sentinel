@@ -14,24 +14,34 @@ without explicit approval.
 
 This repository is being built incrementally against
 [`E2E_SENTINEL_CODEX_MASTER_SPEC.md`](E2E_SENTINEL_CODEX_MASTER_SPEC.md).
-**Phase 0 — Foundation** is implemented; see [docs/ROADMAP.md](docs/ROADMAP.md)
+**Phases 0–1** are implemented; see [docs/ROADMAP.md](docs/ROADMAP.md)
 for what comes next and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) /
 [ADR 0001](docs/adr/0001-phase0-foundation.md) for the reasoning behind
-Phase 0's specific choices.
+the foundational choices.
 
-## What's implemented (Phase 0)
+## What's implemented
 
 - Go API (`apps/api`) with structured logging, environment-based config,
   a PostgreSQL-backed audit log, and `/health` / `/ready` / `/api/v1/audit-events`.
-- A minimal Next.js panel (`apps/web`) on port `9090` with a navigation
-  shell for every section in the spec (most are stub pages pointing at the
-  phase that implements them; Dashboard and Audit Logs are functional).
+- **Projects & repository discovery**: add a project by absolute path
+  (validated — must exist, must be a directory, cannot be a system root,
+  symlinks resolved before any check), then run a deterministic scan that
+  detects languages, frameworks, Docker files, CI pipelines, existing test
+  tooling (Playwright/Cypress/Maestro/Detox/Postman), and API schemas —
+  each finding carries file-path evidence and a confidence level.
+- **Environments**: every project gets a default environment; classifying
+  it `production` or `unknown` forces mutation/load-test/security-scan
+  permissions off in the same request (spec §2.6).
+- A Next.js panel (`apps/web`) on port `9090`: Dashboard, Audit Logs,
+  Projects, and Discovery are functional; the remaining nav sections are
+  stub pages pointing at the phase that implements them.
 - Versioned SQL migrations with a small custom runner.
 - Docker Compose stack: `sentinel-api`, `sentinel-web`, `postgres`, `redis`.
 
-Nothing in Phase 0 reads a target repository, talks to Docker/Kubernetes,
-calls an AI provider, or writes/commits/pushes code anywhere — those are
-reserved for later phases.
+Nothing yet talks to Docker/Kubernetes, calls an AI provider, or
+writes/commits/pushes code anywhere — those are reserved for later
+phases. Discovery only *reads* file names/contents to classify them; it
+never executes anything in the scanned repository.
 
 ## Quick start
 

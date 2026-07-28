@@ -1,7 +1,15 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { fetchJSON, type AuditEvent, type AuditEventsResponse, type HealthResponse, type ReadyResponse } from '@/lib/api';
+import {
+  fetchJSON,
+  type AuditEvent,
+  type AuditEventsResponse,
+  type HealthResponse,
+  type ProjectsResponse,
+  type ReadyResponse,
+} from '@/lib/api';
 
 function StatusBadge({ label, ok }: { label: string; ok: boolean | null }) {
   const className = ok === null ? 'sentinel-status-unknown' : ok ? 'sentinel-status-ok' : 'sentinel-status-bad';
@@ -17,21 +25,24 @@ export default function DashboardPage() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [ready, setReady] = useState<ReadyResponse | null>(null);
   const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [projectCount, setProjectCount] = useState<number | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
-      const [healthRes, readyRes, auditRes] = await Promise.all([
+      const [healthRes, readyRes, auditRes, projectsRes] = await Promise.all([
         fetchJSON<HealthResponse>('/api/health'),
         fetchJSON<ReadyResponse>('/api/ready'),
         fetchJSON<AuditEventsResponse>('/api/v1/audit-events?limit=10'),
+        fetchJSON<ProjectsResponse>('/api/v1/projects'),
       ]);
       if (cancelled) return;
       setHealth(healthRes);
       setReady(readyRes);
       setEvents(auditRes?.events ?? []);
+      setProjectCount(projectsRes?.projects?.length ?? 0);
       setLoaded(true);
     }
 
@@ -77,7 +88,13 @@ export default function DashboardPage() {
 
         <div className="sentinel-card">
           <h3>Projects</h3>
-          <p className="sentinel-status-unknown">Available from Phase 1 (Project &amp; Repository Discovery).</p>
+          {!loaded ? (
+            <p className="sentinel-status-unknown">checking&hellip;</p>
+          ) : (
+            <p>
+              <Link href="/projects">{projectCount} project{projectCount === 1 ? '' : 's'}</Link>
+            </p>
+          )}
         </div>
 
         <div className="sentinel-card">

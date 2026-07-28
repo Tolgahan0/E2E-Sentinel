@@ -39,7 +39,7 @@ func TestNew_UnknownLevelFallsBackToInfo(t *testing.T) {
 
 func TestSensitiveFieldName(t *testing.T) {
 	cases := map[string]bool{
-		"password":            true,
+		"password":             true,
 		"Authorization":        true,
 		"db_connection_string": true,
 		"api_key":              true,

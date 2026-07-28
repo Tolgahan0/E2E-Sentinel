@@ -2,6 +2,11 @@
 .env
 .env.local
 
+# Target repositories placed here for Docker-mode discovery (see
+# docs/LOCAL_DEVELOPMENT.md) — never part of E2E Sentinel's own source.
+/workspace/*
+!/workspace/.gitkeep
+
 # Go
 apps/api/sentinel
 *.test

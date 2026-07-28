@@ -50,6 +50,25 @@ SENTINEL_API_URL="http://localhost:8080" npm run dev
 
 The web app listens on `:9090` in dev mode too (`next dev -p 9090`).
 
+## Adding a project (repository discovery)
+
+`sentinel-api` validates and scans `repository_path` on its own
+filesystem — when running via Docker Compose, that's the container's
+filesystem, not your host's.
+
+- **Outside Docker** (`go run ./cmd/sentinel`): use any absolute host
+  path directly, e.g. `/Users/you/code/routa`.
+- **Via `make up` / Docker Compose**: place or symlink the target
+  repository under `./workspace` in this repo (gitignored, mounted
+  read-only into `sentinel-api` at `/workspace`), then use
+  `/workspace/<name>` as the `repository_path` in the Add Project form.
+  Override the host-side mount with `SENTINEL_WORKSPACE=/other/path make up`
+  if you don't want to use `./workspace`.
+
+Either way, `ValidateRepositoryPath` (spec §23.4) rejects paths that
+don't exist, aren't directories, or resolve to a system root — nothing is
+read until you click "Run discovery".
+
 ## Applying migrations without starting the server
 
 ```bash
