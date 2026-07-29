@@ -21,6 +21,12 @@ for what comes next and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) /
 [ADR 0001](docs/adr/0001-phase0-foundation.md) for the reasoning behind
 the foundational choices.
 
+> **Using an AI coding assistant (Claude Code, Cursor, Codex, Copilot,
+> etc.) on this repo?** Start with [`AGENTS.md`](AGENTS.md) — it's the
+> orientation file: repo map, a docs index, the non-negotiable
+> conventions this codebase follows, and exactly how to verify a change
+> before calling it done.
+
 ## What's implemented
 
 - Go API (`apps/api`) with structured logging, environment-based config,
