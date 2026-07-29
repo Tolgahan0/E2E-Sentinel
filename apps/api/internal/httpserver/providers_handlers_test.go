@@ -159,6 +159,39 @@ func TestPatchProvider_NotFound(t *testing.T) {
 	}
 }
 
+func TestDeleteProvider_NotFound(t *testing.T) {
+	router := NewRouter(newTestDeps(nil, nil))
+	rec := doJSON(t, router, http.MethodDelete, "/api/v1/providers/does-not-exist", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestDeleteProvider_Succeeds(t *testing.T) {
+	router := NewRouter(newTestDeps(nil, nil))
+	createRec := doJSON(t, router, http.MethodPost, "/api/v1/providers", map[string]any{
+		"type": "ollama", "name": "Temp", "base_url": "http://host.docker.internal:11434", "is_local": true,
+	})
+	var provider providerResponse
+	json.Unmarshal(createRec.Body.Bytes(), &provider)
+
+	deleteRec := doJSON(t, router, http.MethodDelete, "/api/v1/providers/"+provider.ID, nil)
+	if deleteRec.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, want 204, body=%s", deleteRec.Code, deleteRec.Body.String())
+	}
+
+	listRec := doJSON(t, router, http.MethodGet, "/api/v1/providers", nil)
+	var list struct {
+		Providers []providerResponse `json:"providers"`
+	}
+	json.Unmarshal(listRec.Body.Bytes(), &list)
+	for _, p := range list.Providers {
+		if p.ID == provider.ID {
+			t.Fatalf("deleted provider %s still present in list", provider.ID)
+		}
+	}
+}
+
 func TestTestProviderConnection_UpdatesHealthStatus(t *testing.T) {
 	fakeOllama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

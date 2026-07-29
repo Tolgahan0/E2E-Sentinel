@@ -115,13 +115,31 @@ function AddProviderForm({ onCreated }: { onCreated: () => void }) {
   );
 }
 
-function ProviderRow({ provider, onChanged }: { provider: Provider; onChanged: (p: Provider) => void }) {
+function ProviderRow({
+  provider,
+  onChanged,
+  onDeleted,
+}: {
+  provider: Provider;
+  onChanged: (p: Provider) => void;
+  onDeleted: (id: string) => void;
+}) {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<ProviderTestResult | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   async function toggleEnabled() {
     const result = await mutateJSON<Provider>('PATCH', `/api/v1/providers/${provider.id}`, { enabled: !provider.enabled });
     if (result.ok && result.data) onChanged(result.data);
+  }
+
+  async function handleDelete() {
+    const confirmed = window.confirm(`Delete provider "${provider.name}"? This cannot be undone.`);
+    if (!confirmed) return;
+    setDeleting(true);
+    const result = await mutateJSON('DELETE', `/api/v1/providers/${provider.id}`);
+    setDeleting(false);
+    if (result.ok) onDeleted(provider.id);
   }
 
   async function testConnection() {
@@ -148,7 +166,10 @@ function ProviderRow({ provider, onChanged }: { provider: Provider; onChanged: (
           <button onClick={testConnection} disabled={testing}>
             {testing ? 'Testing…' : 'Test connection'}
           </button>{' '}
-          <button onClick={toggleEnabled}>{provider.enabled ? 'Disable' : 'Enable'}</button>
+          <button onClick={toggleEnabled}>{provider.enabled ? 'Disable' : 'Enable'}</button>{' '}
+          <button onClick={handleDelete} disabled={deleting} style={{ background: 'var(--sentinel-danger)' }}>
+            {deleting ? 'Deleting…' : 'Delete'}
+          </button>
         </td>
       </tr>
       {testResult && (
@@ -228,6 +249,10 @@ export default function AiProvidersPage() {
     setProviders((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
   }
 
+  function removeProvider(id: string) {
+    setProviders((prev) => prev.filter((p) => p.id !== id));
+  }
+
   return (
     <>
       <h2>AI Providers</h2>
@@ -257,7 +282,7 @@ export default function AiProvidersPage() {
             </thead>
             <tbody>
               {providers.map((p) => (
-                <ProviderRow key={p.id} provider={p} onChanged={updateProvider} />
+                <ProviderRow key={p.id} provider={p} onChanged={updateProvider} onDeleted={removeProvider} />
               ))}
             </tbody>
           </table>

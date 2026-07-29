@@ -67,6 +67,22 @@ func TestMemoryStore_GetNotFound(t *testing.T) {
 	}
 }
 
+func TestMemoryStore_Delete(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+	p, _ := store.Create(ctx, Provider{Type: TypeOllama, Name: "Temp"})
+
+	if err := store.Delete(ctx, p.ID); err != nil {
+		t.Fatalf("Delete() error: %v", err)
+	}
+	if _, err := store.Get(ctx, p.ID); err != ErrNotFound {
+		t.Errorf("Get() after delete = %v, want ErrNotFound", err)
+	}
+	if err := store.Delete(ctx, "missing"); err != ErrNotFound {
+		t.Errorf("Delete(missing) = %v, want ErrNotFound", err)
+	}
+}
+
 func TestMemoryStore_UpdatePartialFields(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := context.Background()

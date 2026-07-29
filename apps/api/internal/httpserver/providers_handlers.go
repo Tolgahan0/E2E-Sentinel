@@ -217,6 +217,42 @@ func handlePatchProvider(deps Dependencies) http.HandlerFunc {
 	}
 }
 
+// handleDeleteProvider removes a provider configuration. Its encrypted
+// API key (if any) is not resolved or touched here — only the provider
+// row itself is removed (see providers.PostgresStore.Delete's doc
+// comment for what that does and doesn't clean up).
+func handleDeleteProvider(deps Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		providerID := chi.URLParam(r, "providerID")
+
+		p, err := deps.Providers.Get(r.Context(), providerID)
+		if errors.Is(err, providers.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider_not_found"})
+			return
+		}
+		if err != nil {
+			deps.Logger.Error().Err(err).Msg("getting provider for deletion failed")
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+
+		if err := deps.Providers.Delete(r.Context(), providerID); err != nil {
+			deps.Logger.Error().Err(err).Msg("deleting provider failed")
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+
+		if err := deps.Audit.Record(r.Context(), audit.Event{
+			ActionType: "provider.deleted", ResourceType: "ai_provider", ResourceID: providerID,
+			Actor: "user", Metadata: map[string]any{"type": p.Type, "name": p.Name},
+		}); err != nil {
+			deps.Logger.Error().Err(err).Msg("recording provider.deleted audit event failed")
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 // handleTestProviderConnection performs a live reachability check (spec
 // §16.3 "Test connection"). It resolves the stored API key server-side
 // only to attach it to the outbound health-check request — the key is

@@ -105,6 +105,16 @@ func (s *MemoryStore) Update(_ context.Context, id string, patch Patch) (Provide
 	return p, nil
 }
 
+func (s *MemoryStore) Delete(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.byID[id]; !ok {
+		return ErrNotFound
+	}
+	delete(s.byID, id)
+	return nil
+}
+
 func (s *MemoryStore) UpdateHealth(_ context.Context, id, status string, checkedAt time.Time) (Provider, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

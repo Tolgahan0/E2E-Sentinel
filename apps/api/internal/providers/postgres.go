@@ -149,6 +149,25 @@ func (s *PostgresStore) UpdateHealth(ctx context.Context, id, status string, che
 	return p, err
 }
 
+// Delete removes a provider's own row only. Its secret_reference_id (if
+// any) is left in place as an orphaned secret_references row —
+// harmless ciphertext with nothing left pointing at it, not cleaned up
+// here since it has no user-visible effect (spec §16.3's API-key-never-
+// returned guarantee already held while the provider existed). Task
+// routing entries (ai.task_routing in settings) that reference this
+// provider's ID become dangling; providers.HealthChecker/Completer
+// callers already handle a routed provider ID that no longer resolves.
+func (s *PostgresStore) Delete(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM ai_providers WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("providers: deleting: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 const selectColumns = `
 	id, type, name, base_url, model, COALESCE(secret_reference_id::text, ''), is_local, enabled,
 	capabilities, timeout_seconds, max_tokens, temperature, health_status,

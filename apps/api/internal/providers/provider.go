@@ -106,6 +106,7 @@ type Store interface {
 	Get(ctx context.Context, id string) (Provider, error)
 	Update(ctx context.Context, id string, patch Patch) (Provider, error)
 	UpdateHealth(ctx context.Context, id, status string, checkedAt time.Time) (Provider, error)
+	Delete(ctx context.Context, id string) error
 }
 
 // Validate checks the fields required to create or update a provider,

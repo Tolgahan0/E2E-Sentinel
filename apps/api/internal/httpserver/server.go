@@ -214,6 +214,7 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.With(requirePermission(deps, auth.PermConfigureProviders)).Patch("/routing", handleUpdateTaskRouting(deps))
 				r.Route("/{providerID}", func(r chi.Router) {
 					r.With(requirePermission(deps, auth.PermConfigureProviders)).Patch("/", handlePatchProvider(deps))
+					r.With(requirePermission(deps, auth.PermConfigureProviders)).Delete("/", handleDeleteProvider(deps))
 					r.With(requirePermission(deps, auth.PermConfigureProviders)).Post("/test", handleTestProviderConnection(deps))
 				})
 			})
