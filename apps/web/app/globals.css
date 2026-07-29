@@ -120,6 +120,82 @@ a {
   margin-top: 1rem;
 }
 
+/* Dashboard pipeline flow — a horizontal row of clickable stage cards
+   connected by arrows, each showing that stage's live count and
+   whether it currently needs a human decision (data-attention). */
+.sentinel-pipeline {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+  overflow-x: auto;
+  margin-top: 1rem;
+  padding-bottom: 0.25rem;
+}
+
+.sentinel-pipeline-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 150px;
+  padding: 0.75rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid var(--sentinel-border);
+  background: var(--sentinel-bg);
+  text-decoration: none;
+  color: var(--sentinel-text);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.sentinel-pipeline-stage:hover {
+  border-color: var(--sentinel-accent);
+}
+
+.sentinel-pipeline-stage[data-attention='true'] {
+  border-color: var(--sentinel-danger);
+  background: color-mix(in srgb, var(--sentinel-danger) 10%, var(--sentinel-bg));
+}
+
+.sentinel-pipeline-stage-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--sentinel-muted);
+}
+
+.sentinel-pipeline-stage-value {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.sentinel-pipeline-stage[data-attention='true'] .sentinel-pipeline-stage-value {
+  color: var(--sentinel-danger);
+}
+
+.sentinel-pipeline-stage-detail {
+  font-size: 0.78rem;
+  color: var(--sentinel-muted);
+}
+
+.sentinel-pipeline-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--sentinel-muted);
+  font-size: 1.2rem;
+  flex-shrink: 0;
+  padding: 0 0.1rem;
+}
+
+@media (max-width: 900px) {
+  .sentinel-pipeline {
+    flex-direction: column;
+  }
+  .sentinel-pipeline-arrow {
+    transform: rotate(90deg);
+    padding: 0.1rem 0;
+  }
+}
+
 .sentinel-status-ok {
   color: var(--sentinel-ok);
 }
@@ -144,6 +220,87 @@ a {
   text-align: left;
   padding: 0.5rem 0.6rem;
   border-bottom: 1px solid var(--sentinel-border);
+}
+
+.sentinel-table tbody tr:hover {
+  background: var(--sentinel-border);
+}
+
+/* Form controls default to the browser's native (light) styling
+   regardless of page theme — every input/select/textarea/button in the
+   panel must match the surrounding dark (or light) theme instead. */
+input,
+select,
+textarea {
+  background: var(--sentinel-bg);
+  color: var(--sentinel-text);
+  border: 1px solid var(--sentinel-border);
+  border-radius: 6px;
+  padding: 0.45rem 0.6rem;
+  font: inherit;
+  font-size: 0.92rem;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--sentinel-muted);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid var(--sentinel-accent);
+  outline-offset: 1px;
+  border-color: var(--sentinel-accent);
+}
+
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  width: auto;
+  accent-color: var(--sentinel-accent);
+}
+
+button {
+  background: var(--sentinel-accent);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 0.5rem 0.9rem;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+button:hover {
+  filter: brightness(1.1);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: none;
+}
+
+/* A button used purely for secondary/inline actions inside a table row
+   (e.g. "Test connection", "Disable") shouldn't compete visually with
+   the page's primary action button. */
+.sentinel-table button {
+  background: transparent;
+  color: var(--sentinel-accent);
+  border: 1px solid var(--sentinel-border);
+}
+
+.sentinel-table button:hover {
+  background: var(--sentinel-border);
+  filter: none;
 }
 
 @media (max-width: 720px) {

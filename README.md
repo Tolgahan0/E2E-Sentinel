@@ -26,6 +26,11 @@ the foundational choices.
 > orientation file: repo map, a docs index, the non-negotiable
 > conventions this codebase follows, and exactly how to verify a change
 > before calling it done.
+>
+> **Just want to use the panel?** [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md)
+> is the step-by-step walkthrough — the pipeline end to end, one section
+> per page, and flowcharts for "where did this come from" and "where is
+> my test right now."
 
 ## What's implemented
 

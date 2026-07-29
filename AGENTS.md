@@ -68,6 +68,7 @@ single source of truth for what's wired to what).
 
 | File | What's in it |
 |---|---|
+| [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | The end-user walkthrough — pipeline flowchart, one section per panel page, a data-lineage diagram, and the test-case/run status lifecycle. **Start here if the question is "how does a person actually use this."** |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Package tree, data model (every table), domain-flow walkthroughs for each major feature, config reference. **Start here for "how does X actually work end to end."** |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Phase-by-phase delivery log: what was built, what was verified, acceptance criteria per phase. **Start here for "is X already done."** |
 | [docs/TEST_ADAPTERS.md](docs/TEST_ADAPTERS.md) | Phase 11: WebSocket adapter (done) vs. Maestro/Detox/k6/ZAP/Nuclei/Schemathesis/Pact/Kafka (deferred, with the extension pattern to follow). |
