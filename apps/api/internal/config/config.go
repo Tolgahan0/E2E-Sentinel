@@ -108,6 +108,19 @@ type Config struct {
 	// once, when no users exist yet.
 	AdminEmail    string
 	AdminPassword string
+
+	// KubeConfigPath points at a kubeconfig file (spec §7.5 Kubernetes
+	// discovery). Empty (the default) means Kubernetes discovery is
+	// disabled unless the process happens to be running in-cluster
+	// (kubeclient.Detect also checks for that) — the same "safe
+	// default, explicit capability" pattern as every other optional
+	// integration.
+	KubeConfigPath string
+	// KubeNamespace scopes discovery to a single namespace. Empty means
+	// cluster-wide (every namespace the configured credentials can
+	// list) — set this when the deployment's ClusterRole/RoleBinding is
+	// itself namespace-scoped, since a cluster-wide list would just 403.
+	KubeNamespace string
 }
 
 // Load reads configuration from environment variables and validates it.
@@ -138,6 +151,8 @@ func Load(getenv func(string) string) (Config, error) {
 		FixWorkspacesDir:            firstNonEmpty(getenv("SENTINEL_FIX_WORKSPACES_DIR"), "/data/fix-workspaces"),
 		AdminEmail:                  strings.TrimSpace(getenv("SENTINEL_ADMIN_EMAIL")),
 		AdminPassword:               getenv("SENTINEL_ADMIN_PASSWORD"),
+		KubeConfigPath:              strings.TrimSpace(getenv("SENTINEL_KUBE_CONFIG_PATH")),
+		KubeNamespace:               strings.TrimSpace(getenv("SENTINEL_KUBE_NAMESPACE")),
 	}
 
 	if raw := getenv("SENTINEL_AUTH_ENABLED"); raw != "" {

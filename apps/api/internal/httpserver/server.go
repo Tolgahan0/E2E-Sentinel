@@ -23,6 +23,7 @@ import (
 	"e2e-sentinel/apps/api/internal/failures"
 	"e2e-sentinel/apps/api/internal/fixproposals"
 	"e2e-sentinel/apps/api/internal/graph"
+	"e2e-sentinel/apps/api/internal/kubediscovery"
 	"e2e-sentinel/apps/api/internal/metrics"
 	"e2e-sentinel/apps/api/internal/planning"
 	"e2e-sentinel/apps/api/internal/projects"
@@ -99,7 +100,16 @@ type Dependencies struct {
 	// Dependencies (never a package-level global), so unrelated router
 	// instances (notably, each test) never share counters.
 	Metrics *metrics.AppMetrics
-	Logger  zerolog.Logger
+	// Kube is optional: nil means "Kubernetes discovery is not
+	// configured" (SENTINEL_KUBE_CONFIG_PATH unset and not running
+	// in-cluster) — spec §7.5 Phase 10. Every other feature is
+	// unaffected; the kube-discover route returns 503.
+	Kube          KubeAPI
+	KubeResources kubediscovery.Store
+	// KubeNamespace scopes discovery to one namespace; empty means
+	// cluster-wide.
+	KubeNamespace string
+	Logger        zerolog.Logger
 }
 
 // NewRouter builds the chi router for the API.
@@ -134,6 +144,7 @@ func NewRouter(deps Dependencies) http.Handler {
 
 		r.Get("/auth/status", handleAuthStatus(deps))
 		r.Post("/auth/login", handleLogin(deps))
+		r.Get("/kube/status", handleKubeStatus(deps))
 
 		r.Group(func(r chi.Router) {
 			r.Use(requireAuth(deps))
@@ -153,6 +164,10 @@ func NewRouter(deps Dependencies) http.Handler {
 					r.Get("/discovery", handleGetDiscovery(deps))
 					r.Get("/environments", handleListEnvironments(deps))
 					r.Get("/services", handleListServices(deps))
+					r.Post("/kube-discover", handleDiscoverKube(deps))
+					r.Get("/kube-resources", handleListKubeResources(deps))
+					r.Get("/kube/events", handleGetKubeEvents(deps))
+					r.Get("/kube/pods/{podName}/logs", handleGetKubePodLogs(deps))
 					r.Get("/graph", handleGetGraph(deps))
 					r.With(requirePermission(deps, auth.PermGenerateTests)).Post("/tests/plan", handleGenerateTestPlan(deps))
 					r.Get("/tests", handleListTests(deps))

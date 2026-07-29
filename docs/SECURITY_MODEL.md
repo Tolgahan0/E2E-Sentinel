@@ -6,7 +6,7 @@ and §23 for the full target model; this file states what's true *today*.
 [docs/THREAT_MODEL.md](THREAT_MODEL.md) covers threat areas in more depth
 as each phase introduces the surface they apply to.
 
-## Current state (Phases 0–9)
+## Current state (Phases 0–10)
 
 - **Target-repository access is path-validated, and read-only except for
   one explicit, approval-gated write path (Phase 8).**
@@ -208,11 +208,27 @@ as each phase introduces the surface they apply to.
 - **Least-exposure networking.** Only `sentinel-web` (`9090`) is intended
   for end users. `sentinel-api` (`8080`), `postgres` (`5432`), and `redis`
   (`6379`) are bound to `127.0.0.1` in `docker-compose.yml`, not `0.0.0.0`.
+- **Kubernetes discovery is read-only and opt-in (Phase 10).**
+  `internal/kubeclient` issues only GETs — there is no create/update/
+  patch/delete call anywhere in the package (spec §2's "must not apply
+  Kubernetes resources"). `SENTINEL_KUBE_CONFIG_PATH` defaults to unset
+  (disabled); a
+  [read-only ClusterRole example](../deploy/k8s/read-only-clusterrole.yaml)
+  ships for the real deployment case (spec §7.5's least-privilege RBAC
+  requirement). Secret and ConfigMap **values** are never retained —
+  `SecretSummary`/`ConfigMapSummary` have no `data`/`stringData` field at
+  all, so `encoding/json` drops that part of a response during decode;
+  this is a structural guarantee (verified by a test asserting a
+  real-shaped Secret payload never survives into the decoded struct),
+  not just a policy not to read it. A kubeconfig using an
+  `exec`/`auth-provider` credential plugin is rejected with a clear
+  startup error rather than silently attempting (and failing) a partial
+  connection.
 
 ## Not yet implemented
 
-Kubernetes discovery sandboxing lands in Phase 10 (see
-[docs/ROADMAP.md](ROADMAP.md)). OIDC/SAML and dynamic per-role permission
+Helm deployment of E2E Sentinel itself (spec §24.5) is a separate,
+later concern from Kubernetes *discovery* (Phase 10, implemented). OIDC/SAML and dynamic per-role permission
 editing are not implemented — RBAC's architecture is ready for them
 (`auth.Store` is a plain interface), but only local email/password auth
 with a fixed permission mapping exists. Until `SENTINEL_AUTH_ENABLED=true`

@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { href: '/projects', label: 'Projects' },
   { href: '/discovery', label: 'Discovery' },
   { href: '/application-map', label: 'Application Map' },
+  { href: '/kubernetes', label: 'Kubernetes' },
   { href: '/test-inventory', label: 'Test Inventory' },
   { href: '/runs', label: 'Runs' },
   { href: '/bugs', label: 'Bugs' },

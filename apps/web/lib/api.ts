@@ -308,6 +308,58 @@ export interface FixProposalApplyResult {
   all_applied: boolean;
 }
 
+// Phase 10 Kubernetes discovery (spec §7.5) — opt-in, see GET
+// /kube/status. Every resource kind that has no meaningful replica/pod
+// health concept (namespace, service, ingress, gateway, configmap,
+// secret, cronjob) reports status "not_applicable", never a guess.
+export interface KubeStatusResponse {
+  configured: boolean;
+  namespace: string;
+}
+
+export type KubeResourceStatus = 'healthy' | 'degraded' | 'unknown' | 'not_applicable';
+
+export interface KubeResource {
+  id: string;
+  namespace: string;
+  kind: string;
+  name: string;
+  desired_replicas: number | null;
+  ready_replicas: number | null;
+  restart_count: number | null;
+  status: KubeResourceStatus;
+  metadata: Record<string, unknown>;
+  last_seen_at: string;
+}
+
+export interface KubeResourcesResponse {
+  resources: KubeResource[] | null;
+}
+
+export interface KubeDiscoverResponse {
+  resources: KubeResource[] | null;
+  warnings: string[] | null;
+}
+
+export interface KubeEvent {
+  namespace: string;
+  involved_kind: string;
+  involved_name: string;
+  reason: string;
+  message: string;
+  type: string;
+  count: number;
+  last_timestamp: string;
+}
+
+export interface KubeEventsResponse {
+  events: KubeEvent[] | null;
+}
+
+export interface KubePodLogsResponse {
+  logs: string;
+}
+
 // Phase 9 RBAC (opt-in — see GET /auth/status). The bearer token is
 // stored client-side only in this tab's memory-backed storage
 // (sessionStorage, not localStorage: it should not silently persist

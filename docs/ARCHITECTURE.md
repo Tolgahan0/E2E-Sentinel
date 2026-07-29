@@ -43,6 +43,8 @@ apps/api (Go, chi router)
   +-- internal/fixproposals  Candidate patches: pure-Go diff parser/applier, temp workspace, repo write (spec §15)
   +-- internal/auth          RBAC: users, sessions, fixed role->permission mapping (spec §19, opt-in)
   +-- internal/metrics       Hand-rolled Prometheus-format counters/gauges (spec §22)
+  +-- internal/kubeclient    Hand-rolled read-only Kubernetes API client (spec §7.5, opt-in)
+  +-- internal/kubediscovery Kubernetes resource discovery + pod/workload correlation (spec §7.5)
   +-- internal/httpserver    HTTP handlers
   |
   +-- PostgreSQL
@@ -203,6 +205,15 @@ an edge's endpoints before they have database IDs.
   returned once, at login. RBAC built on these tables is opt-in
   (`SENTINEL_AUTH_ENABLED`, default false); every other table is fully
   usable whether or not these two are ever populated.
+- `kube_resources` — see `migrations/0011_kubernetes.sql`. Unique on
+  `(project_id, namespace, kind, name)`, upserted the same way as
+  `discovered_services`. `metadata` is JSONB holding per-kind detail
+  (container images/resources/probes, service ports/selector, ingress
+  hosts/backends, secret type) — never a Secret/ConfigMap's actual value,
+  since `internal/kubeclient`'s types have no field that could carry one
+  in the first place. Populated only when Kubernetes discovery is
+  configured (`SENTINEL_KUBE_CONFIG_PATH` or in-cluster credentials);
+  otherwise this table simply stays empty.
 
 ## Domain flow: running a test (Phase 5)
 
@@ -398,6 +409,44 @@ role. See [docs/APPROVAL_MODEL.md](APPROVAL_MODEL.md) for how this
 composes with the test-case and fix-proposal approval gates that predate
 RBAC and work identically whether or not it's turned on.
 
+## Domain flow: discovering a Kubernetes cluster (Phase 10)
+
+Opt-in — every step below is skipped (`Kube` is `nil` in `Dependencies`)
+unless `SENTINEL_KUBE_CONFIG_PATH` is set or the process is running
+in-cluster:
+
+```text
+startup:
+  -> kubeclient.Detect(kubeConfigPath):
+       kubeConfigPath != ""        -> kubeclient.LoadKubeconfig (token or
+                                       client-cert auth only)
+       KUBERNETES_SERVICE_HOST set -> kubeclient.LoadInCluster (projected
+                                       ServiceAccount token + CA cert)
+       neither                     -> kubeclient.ErrNotConfigured (Kube
+                                       stays nil; every kube-* route 503s)
+
+POST /projects/{id}/kube-discover
+  -> kubediscovery.Discover(ctx, api, namespace):
+       lists Namespaces (only when namespace == "", i.e. cluster-wide),
+       Deployments/StatefulSets/DaemonSets (+ Pods, for restart-count
+       correlation by label selector), Jobs, CronJobs, Services,
+       Ingresses, Gateways (best-effort), ConfigMaps, Secrets (names
+       only — see SecretSummary/ConfigMapSummary in internal/kubeclient)
+     -> a kind that 403s (RBAC) or 404s (Gateway API not installed)
+        becomes a Warning, never a failed request
+  -> deps.KubeResources.Upsert per resource, keyed by
+     (project_id, namespace, kind, name)
+  -> audit: kubernetes.discovered
+
+GET /projects/{id}/kube/events, GET /projects/{id}/kube/pods/{pod}/logs
+  -> live proxies to kubeclient.ListEvents/PodLogs — never persisted,
+     never a stream/follow, logs capped at kubeclient.MaxLogTailLines
+```
+
+See [docs/KUBERNETES_DISCOVERY.md](KUBERNETES_DISCOVERY.md) for the full
+detection list and the read-only ClusterRole example
+(`deploy/k8s/read-only-clusterrole.yaml`).
+
 ## Configuration
 
 All configuration is environment-variable based (`internal/config`), with
@@ -409,8 +458,9 @@ validation at startup and no silent defaults for security-relevant values
 
 Per spec §2.2 and §34, there is still no code path that:
 
-- talks to the Kubernetes API (Phase 10) — Docker's is now supported,
-  read-only, and optional (Phase 2),
+- deploys E2E Sentinel itself via Helm (spec §24.5) — Kubernetes
+  *discovery* (Phase 10) is implemented, read-only, and optional; Helm
+  packaging of this project's own services is a separate, later concern,
 - commits, pushes, or creates a branch/PR in git — Phase 8 can write
   files directly to a repository_path after approval, but has no git
   plumbing at all (spec §15.3's "dedicated branch"/"push"/"PR creation"

@@ -508,9 +508,72 @@ handling re-verified (provider keys, session tokens, passwords all
 stored only as a hash/ciphertext, never raw); Phase 5's runner isolation
 tests (already existing, unchanged) still pass.
 
-## Next: Phase 10 — Kubernetes Discovery
+## Phase 10 — Kubernetes Discovery (done)
 
-Per spec §25 Phase 10 (deliver only after the Docker MVP is stable, which
-it now is): Kubernetes connection, namespace scoping, workload discovery,
-pod health, events, read-only logs, ingress/service mapping, Helm
-deployment.
+- **`internal/kubeclient`**: a hand-rolled, read-only Kubernetes API
+  client — the same "small capability surface" philosophy as
+  `internal/dockerclient`, not `client-go`'s much larger dependency
+  tree. Every method is a GET; there is no create/update/patch/delete
+  anywhere (spec §2 forbids applying Kubernetes resources). Two
+  connection modes: a kubeconfig file (bearer-token or
+  client-certificate auth only — an `exec`/`auth-provider` plugin
+  produces a clear startup error, not a silent partial connection) or
+  auto-detected in-cluster ServiceAccount credentials (the real
+  deployment scenario, matching spec §24.5's read-only ServiceAccount).
+  `ErrForbidden`/`ErrNotFound`/`ErrUnavailable` let every caller
+  distinguish "RBAC denied this", "this API/CRD isn't installed", and
+  "cluster unreachable" instead of one opaque failure.
+- **Secret/ConfigMap values are structurally unreachable, not just
+  policy.** `SecretSummary`/`ConfigMapSummary` have no `data`/
+  `stringData` field at all — the value never gets decoded into memory
+  even if a bug tried to log or forward the response, because
+  `encoding/json` simply drops JSON fields a destination struct doesn't
+  declare. Verified by a test that decodes a fixture Secret response
+  containing real-shaped base64 data and asserts it never appears
+  anywhere in the resulting struct.
+- **`internal/kubediscovery`**: correlates Pods to
+  Deployments/StatefulSets/DaemonSets by label selector (not
+  `ownerReferences`, avoiding a ReplicaSet lookup) for restart-count
+  aggregation; desired/ready replica counts come directly from each
+  workload's own `status` fields. `Discover` never fails outright — a
+  kind that 403s or 404s (Gateway API not installed) becomes a warning,
+  and everything else discovered is still returned and stored.
+  Ingress→Service linkage records backend service names even when no
+  matching Service was itself discovered (e.g. a cross-namespace
+  reference) — the mismatch is informative, not hidden.
+- **Least-privilege RBAC example**:
+  [`deploy/k8s/read-only-clusterrole.yaml`](../deploy/k8s/read-only-clusterrole.yaml)
+  (spec §7.5's explicit requirement) — a ServiceAccount plus a
+  ClusterRole granting only `get`/`list` on exactly the resource kinds
+  this feature reads, no write verb anywhere.
+- **HTTP surface**: `GET /kube/status` (unauthenticated, mirrors
+  `/auth/status`), `POST /projects/{id}/kube-discover`, `GET
+  /projects/{id}/kube-resources` (the persisted discovery snapshot),
+  `GET /projects/{id}/kube/events` and `GET
+  /projects/{id}/kube/pods/{pod}/logs` (both live, non-persisted reads
+  — events are high-volume/ephemeral, logs are capped and
+  non-streaming). All 503 with `kubernetes_not_configured` when unset —
+  every other route is unaffected.
+- **Web**: a new Kubernetes nav page — a project-scoped resource table
+  (namespace/kind/name/replicas/restarts/status), a discovery-warnings
+  panel, an on-demand cluster-events viewer, and a pod-logs viewer.
+  Hidden behind a "not configured" notice when `SENTINEL_KUBE_CONFIG_PATH`
+  is unset, matching the AI Providers page's "fully usable with nothing
+  configured" pattern.
+- See [docs/KUBERNETES_DISCOVERY.md](KUBERNETES_DISCOVERY.md) for the
+  full detection list, configuration, and RBAC details.
+
+Acceptance criteria (spec) — verified: discovery is entirely opt-in
+(`SENTINEL_KUBE_CONFIG_PATH` unset behaves exactly as every prior phase,
+confirmed by the full existing test suite passing unmodified); a
+partial RBAC restriction or a missing Gateway API CRD degrades to a
+warning rather than a failed request; Secret/ConfigMap values are never
+retained; live-verified against a real (throwaway `kind`) cluster with a
+ServiceAccount token scoped to the example ClusterRole — see
+docs/KUBERNETES_DISCOVERY.md and the Phase 10 commit for the concrete
+verification steps.
+
+## Next: Phase 11 — Advanced Test Adapters
+
+Per spec §25 Phase 11: WebSocket adapter, Maestro, Detox, k6, ZAP,
+Nuclei, Schemathesis, Pact, Kafka/event testing.

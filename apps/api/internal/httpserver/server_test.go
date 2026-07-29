@@ -19,6 +19,7 @@ import (
 	"e2e-sentinel/apps/api/internal/failures"
 	"e2e-sentinel/apps/api/internal/fixproposals"
 	"e2e-sentinel/apps/api/internal/graph"
+	"e2e-sentinel/apps/api/internal/kubediscovery"
 	"e2e-sentinel/apps/api/internal/metrics"
 	"e2e-sentinel/apps/api/internal/planning"
 	"e2e-sentinel/apps/api/internal/projects"
@@ -59,6 +60,8 @@ func newTestDeps(pgErr, redisErr error) Dependencies {
 		Auth:             auth.NewMemoryStore(),
 		AuthEnabled:      false, // opt-in; see auth_handlers_test.go for AuthEnabled: true coverage
 		Metrics:          metrics.NewAppMetrics(metrics.NewRegistry()),
+		Kube:             nil, // no kubeconfig configured by default; see kube_handlers_test.go for a fake API
+		KubeResources:    kubediscovery.NewMemoryStore(),
 	}
 }
 

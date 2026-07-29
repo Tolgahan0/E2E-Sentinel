@@ -97,6 +97,12 @@ services:
       SENTINEL_AUTH_ENABLED: ${SENTINEL_AUTH_ENABLED:-false}
       SENTINEL_ADMIN_EMAIL: ${SENTINEL_ADMIN_EMAIL:-}
       SENTINEL_ADMIN_PASSWORD: ${SENTINEL_ADMIN_PASSWORD:-}
+      # Phase 10 Kubernetes discovery: optional, defaults to disabled.
+      # Set SENTINEL_KUBE_CONFIG_HOST_PATH (below, a host file) to mount
+      # a kubeconfig and point this at its in-container path. See
+      # docs/KUBERNETES_DISCOVERY.md.
+      SENTINEL_KUBE_CONFIG_PATH: ${SENTINEL_KUBE_CONFIG_PATH:-}
+      SENTINEL_KUBE_NAMESPACE: ${SENTINEL_KUBE_NAMESPACE:-}
     volumes:
       - ./migrations:/app/migrations:ro
       # Target repositories to discover/test must be reachable inside this
@@ -124,6 +130,12 @@ services:
       - ${SENTINEL_RUNNER_HOST_WORKSPACE_DIR:-./runner-workspaces}:/runner-workspaces
       - sentinel-artifacts:/data/artifacts
       - sentinel-fix-workspaces:/data/fix-workspaces
+      # Phase 10 Kubernetes discovery: optional. Mounts a placeholder
+      # (/dev/null) unless SENTINEL_KUBE_CONFIG_HOST_PATH is set to a
+      # real kubeconfig file on the host, in which case also set
+      # SENTINEL_KUBE_CONFIG_PATH=/kube/config above. See
+      # docs/KUBERNETES_DISCOVERY.md.
+      - ${SENTINEL_KUBE_CONFIG_HOST_PATH:-/dev/null}:/kube/config:ro
     ports:
       - "127.0.0.1:8080:8080"
 

@@ -14,7 +14,7 @@ without explicit approval.
 
 This repository is being built incrementally against
 [`E2E_SENTINEL_CODEX_MASTER_SPEC.md`](E2E_SENTINEL_CODEX_MASTER_SPEC.md).
-**Phases 0–9** are implemented; see [docs/ROADMAP.md](docs/ROADMAP.md)
+**Phases 0–10** are implemented; see [docs/ROADMAP.md](docs/ROADMAP.md)
 for what comes next and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) /
 [ADR 0001](docs/adr/0001-phase0-foundation.md) for the reasoning behind
 the foundational choices.
@@ -97,11 +97,20 @@ the foundational choices.
   events; a retention sweep for expired artifacts; a `/metrics`
   endpoint; a threat-model table; and `make scan` (govulncheck + npm
   audit, also in CI) for dependency scanning.
+- **Kubernetes discovery**: opt-in, read-only (`SENTINEL_KUBE_CONFIG_PATH`
+  or in-cluster ServiceAccount credentials, unset by default) discovery
+  of namespaces, Deployments/StatefulSets/DaemonSets (replica health,
+  restart counts), Jobs/CronJobs, Services/Ingresses (mapped to each
+  other), best-effort Gateway API, and Secret/ConfigMap *names* only —
+  never values, structurally, not just by policy. A read-only ClusterRole
+  example ships at `deploy/k8s/read-only-clusterrole.yaml`; a partial RBAC
+  restriction or a missing CRD degrades to a warning, never a failed
+  request.
 - A Next.js panel (`apps/web`) on port `9090`: Dashboard, Audit Logs,
-  Projects, Discovery (findings + services), Application Map, Test
-  Inventory, Runs, AI Providers, Bugs, and Fix Proposals are functional;
-  the remaining nav sections are stub pages pointing at the phase that
-  implements them.
+  Projects, Discovery (findings + services), Application Map, Kubernetes,
+  Test Inventory, Runs, AI Providers, Bugs, and Fix Proposals are
+  functional; the remaining nav sections are stub pages pointing at the
+  phase that implements them.
 - Versioned SQL migrations with a small custom runner.
 - Docker Compose stack: `sentinel-api`, `sentinel-web`, `postgres`,
   `redis`, plus disposable Playwright runner containers launched on

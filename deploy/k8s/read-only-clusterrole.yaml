@@ -1,0 +1,76 @@
+# Example least-privilege RBAC for E2E Sentinel's Kubernetes discovery
+# (spec §7.5 "Use least-privilege RBAC. Provide a read-only ClusterRole
+# example."). Grants exactly the list/get verbs internal/kubeclient
+# uses — no create/update/patch/delete anywhere, and no access to
+# Secret/ConfigMap *values* (Kubernetes RBAC can't restrict which
+# fields of an object a "get"/"list" returns, so E2E Sentinel itself
+# never reads or stores secret data — see internal/kubeclient's
+# SecretSummary/ConfigMapSummary types — but the role is still scoped to
+# only what's needed).
+#
+# Usage:
+#   kubectl apply -f deploy/k8s/read-only-clusterrole.yaml
+#   kubectl -n <namespace> create token sentinel-discovery --duration=8760h
+# and use that token as the kubeconfig "token" field, or run
+# sentinel-api as a pod using the sentinel-discovery ServiceAccount
+# directly (in-cluster auth is auto-detected — see
+# docs/KUBERNETES_DISCOVERY.md).
+#
+# To scope discovery to one namespace instead of the whole cluster,
+# replace ClusterRole/ClusterRoleBinding below with a Role/RoleBinding
+# in that namespace (same rules), and set SENTINEL_KUBE_NAMESPACE.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sentinel-discovery
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: sentinel-discovery-read-only
+rules:
+  - apiGroups: [""]
+    resources:
+      - namespaces
+      - services
+      - pods
+      - pods/log
+      - configmaps
+      - secrets
+      - events
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - statefulsets
+      - daemonsets
+    verbs: ["get", "list"]
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+      - cronjobs
+    verbs: ["get", "list"]
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - ingresses
+    verbs: ["get", "list"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources:
+      - gateways
+    verbs: ["get", "list"]
+    # Absent entirely on a cluster without the Gateway API CRD — E2E
+    # Sentinel treats the resulting 404 as "not installed", not an error.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: sentinel-discovery-read-only
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: sentinel-discovery-read-only
+subjects:
+  - kind: ServiceAccount
+    name: sentinel-discovery
+    namespace: default

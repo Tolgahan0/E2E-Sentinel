@@ -25,6 +25,8 @@ import (
 	"e2e-sentinel/apps/api/internal/fixproposals"
 	"e2e-sentinel/apps/api/internal/graph"
 	"e2e-sentinel/apps/api/internal/httpserver"
+	"e2e-sentinel/apps/api/internal/kubeclient"
+	"e2e-sentinel/apps/api/internal/kubediscovery"
 	"e2e-sentinel/apps/api/internal/logging"
 	"e2e-sentinel/apps/api/internal/metrics"
 	"e2e-sentinel/apps/api/internal/planning"
@@ -179,6 +181,30 @@ func run(migrateOnly bool) error {
 		logger.Info().Msg("RBAC not enabled (SENTINEL_AUTH_ENABLED unset) — every route is open, as in Phases 0-8")
 	}
 
+	// Kubernetes discovery (Phase 10) is optional: nil until a
+	// kubeconfig is configured or the process is running in-cluster
+	// (spec §7.5). Every other feature is unaffected — the kube-discover
+	// route returns 503 until this is set up.
+	var kubeAPI httpserver.KubeAPI
+	kubeNamespace := cfg.KubeNamespace
+	if client, kubeCfg, err := kubeclient.Detect(cfg.KubeConfigPath); err != nil {
+		if errors.Is(err, kubeclient.ErrNotConfigured) {
+			logger.Info().Msg("kubernetes discovery not configured (SENTINEL_KUBE_CONFIG_PATH unset, not running in-cluster) — POST /projects/{id}/kube-discover will return 503")
+		} else {
+			logger.Error().Err(err).Msg("kubernetes configuration is invalid; kubernetes discovery disabled")
+		}
+	} else {
+		kubeAPI = client
+		if kubeNamespace == "" {
+			kubeNamespace = kubeCfg.Namespace // fall back to the kubeconfig context's own namespace
+		}
+		logLabel := kubeNamespace
+		if logLabel == "" {
+			logLabel = "(cluster-wide)"
+		}
+		logger.Info().Str("namespace", logLabel).Msg("kubernetes discovery configured")
+	}
+
 	router := httpserver.NewRouter(httpserver.Dependencies{
 		Postgres:         httpserver.PostgresPinger{Pool: pgPool},
 		Redis:            httpserver.RedisPinger{Client: redisClient},
@@ -201,6 +227,9 @@ func run(migrateOnly bool) error {
 		FixWorkspacesDir: cfg.FixWorkspacesDir,
 		Docker:           dockerClient,
 		Runner:           runner,
+		Kube:             kubeAPI,
+		KubeResources:    kubediscovery.NewPostgresStore(pgPool),
+		KubeNamespace:    kubeNamespace,
 		Secrets:          secretStore,
 		Auth:             authStore,
 		AuthEnabled:      cfg.AuthEnabled,
