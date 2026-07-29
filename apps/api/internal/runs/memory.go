@@ -11,6 +11,7 @@ import (
 type MemoryStore struct {
 	mu     sync.Mutex
 	byID   map[string]TestRun
+	order  []string
 	nextID int
 }
 
@@ -27,6 +28,7 @@ func (s *MemoryStore) Create(_ context.Context, run TestRun) (TestRun, error) {
 		run.StartedAt = time.Now()
 	}
 	s.byID[run.ID] = run
+	s.order = append(s.order, run.ID)
 	return run, nil
 }
 
@@ -46,6 +48,19 @@ func (s *MemoryStore) ListByProject(_ context.Context, projectID string) ([]Test
 	var out []TestRun
 	for _, r := range s.byID {
 		if r.ProjectID == projectID {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+func (s *MemoryStore) ListByTestCase(_ context.Context, testCaseID string) ([]TestRun, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []TestRun
+	for _, id := range s.order {
+		r := s.byID[id]
+		if r.TestCaseID == testCaseID {
 			out = append(out, r)
 		}
 	}

@@ -14,11 +14,13 @@ import (
 
 	"e2e-sentinel/apps/api/internal/artifacts"
 	"e2e-sentinel/apps/api/internal/audit"
+	"e2e-sentinel/apps/api/internal/bugreports"
 	"e2e-sentinel/apps/api/internal/config"
 	"e2e-sentinel/apps/api/internal/db"
 	"e2e-sentinel/apps/api/internal/discovery"
 	"e2e-sentinel/apps/api/internal/dockerclient"
 	"e2e-sentinel/apps/api/internal/environments"
+	"e2e-sentinel/apps/api/internal/failures"
 	"e2e-sentinel/apps/api/internal/graph"
 	"e2e-sentinel/apps/api/internal/httpserver"
 	"e2e-sentinel/apps/api/internal/logging"
@@ -160,6 +162,8 @@ func run(migrateOnly bool) error {
 		Artifacts:      artifacts.NewFileStore(pgPool, cfg.ArtifactsDir),
 		Providers:      providers.NewPostgresStore(pgPool),
 		Settings:       settings.NewPostgresStore(pgPool),
+		Failures:       failures.NewPostgresStore(pgPool),
+		Bugs:           bugreports.NewPostgresStore(pgPool),
 		ProviderHealth: providers.NewHealthChecker(nil),
 		Docker:         dockerClient,
 		Runner:         runner,

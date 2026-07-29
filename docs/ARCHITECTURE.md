@@ -38,6 +38,8 @@ apps/api (Go, chi router)
   +-- internal/secretstore   AES-256-GCM encryption for provider API keys
   +-- internal/redaction     Secret/token/credential scrubbing before AI context (no AI call exists yet)
   +-- internal/settings      Generic key/value store (first use: AI task routing)
+  +-- internal/failures      Deterministic failure classification + flaky assessment (spec §13)
+  +-- internal/bugreports    Structured, deduplicated bug reports (spec §14)
   +-- internal/httpserver    HTTP handlers
   |
   +-- PostgreSQL
@@ -47,9 +49,8 @@ apps/api (Go, chi router)
   +-- AI provider APIs (Phase 6; optional, never required)
 ```
 
-Future phases add sibling packages under `internal/` — `failures/`,
-`fixes/`, `approval/`, `scheduler/`, `telemetry/` — exactly as laid out
-in spec §5.
+Future phases add sibling packages under `internal/` — `fixes/`,
+`approval/`, `scheduler/`, `telemetry/` — exactly as laid out in spec §5.
 
 ## Request flow
 
@@ -178,6 +179,14 @@ an edge's endpoints before they have database IDs.
   references it by ID (`ON DELETE SET NULL`, so deleting a key never
   cascades into deleting the provider); `settings` is a generic
   key/value table, first used for `ai.task_routing`.
+- `failures`, `bug_reports` — see `migrations/0008_failures_and_bugs.sql`.
+  `failures` is one row per classified failed run (append-only, never
+  updated). `bug_reports` is unique on `(project_id, test_case_id,
+  failure_type)` — repeated failures of the same kind on the same test
+  update the existing row (frequency, last_observed_at) via
+  `ON CONFLICT ... DO UPDATE` rather than accumulating duplicates;
+  `possible_duplicate_of_id` self-references another bug as an
+  unconfirmed hint, never an automatic merge.
 
 ## Domain flow: running a test (Phase 5)
 
@@ -213,6 +222,42 @@ POST /runs/{id}/cancel
      goroutines/processes
   -> audit: test_run.cancelled
 ```
+
+## Domain flow: classifying a failure and updating a bug report (Phase 7)
+
+Runs inside the same `executeRunAsync` as above, BEFORE the run's status
+flips to its terminal value — a client polling `GET /runs/{id}` must
+never observe "failed" before the corresponding bug report exists:
+
+```text
+[background] executeRunAsync, only when the run's outcome is failed
+(exit code != 0) or Runner.Execute itself returned an error:
+  -> failures.Classify(stdout, stderr, exit_code)  [deterministic, no AI —
+     pattern-matched signatures checked in a fixed order; unmatched ->
+     failure_type "unknown", never left blank]
+  -> failures.Store.Create (one row per run, append-only)
+  -> graph.Store.Get(project_id) -> buildRelatedGraphPath: look for a
+     graph edge into/out of the test's route (Phase 3's Application
+     Graph) — omitted, not guessed, if the route isn't in the graph
+  -> runs.Store.ListByTestCase -> failures.AssessFlakiness(history)
+     [spec §13.2 policy; always attached, a flaky label never hides a bug]
+  -> bugreports.Store.UpsertFromFailure, keyed by
+     (project_id, test_case_id, failure_type):
+       - no existing row -> INSERT (status=open, frequency=1), plus a
+         possible_duplicate_of_id hint if another OPEN bug on a
+         DIFFERENT test case shares the same failure_type
+       - existing row -> UPDATE in place (frequency+1, evidence/root
+         cause refreshed to latest); a resolved bug flips to reopened
+         rather than silently absorbing the update
+  -> audit: bug_report.created | bug_report.updated
+```
+
+`root_cause_hypothesis` is never presented as a confirmed fact: every
+response and export carries an explicit
+`root_cause_is_unverified_hypothesis: true` alongside it (spec §14
+acceptance: "Root cause is clearly marked as hypothesis"). See
+[docs/FAILURE_CORRELATION.md](FAILURE_CORRELATION.md) for the full
+classification/severity/flaky-detection model.
 
 ## Domain flow: configuring and testing an AI provider (Phase 6)
 
@@ -260,9 +305,10 @@ Per spec §2.2 and §34, there is still no code path that:
 
 - talks to the Kubernetes API (Phase 10) — Docker's is now supported,
   read-only, and optional (Phase 2),
-- makes an actual AI call — Phase 6 delivers provider configuration,
-  health checks, and task routing only; the first real AI consumer is
-  failure analysis (Phase 7),
+- makes an actual AI call — Phase 6 delivers provider configuration and
+  health checks, Phase 7 adds deterministic (still no-AI) failure
+  classification; the first real AI consumer is reserved for a later
+  phase (fix generation, Phase 8),
 - writes, commits, or pushes code anywhere (Phase 8),
 - executes anything found inside a scanned repository — discovery only
   *reads* file names/contents to classify them, it never runs them.

@@ -13,7 +13,7 @@ previous one's acceptance criteria are demonstrated (spec §33).
 | 4 | Test Planning | **Done** |
 | 5 | Playwright Runner | **Done** |
 | 6 | AI Providers | **Done** |
-| 7 | Failure Analysis & Bug Reports | Not started |
+| 7 | Failure Analysis & Bug Reports | **Done** |
 | 8 | Fix Proposals | Not started |
 | 9 | Production Hardening | Not started |
 | 10 | Kubernetes Discovery | Not started |
@@ -284,11 +284,66 @@ cookies never survive into redacted output while ordinary text is left
 byte-for-byte unchanged; AI remains fully optional — `go test ./...`
 passes with `SENTINEL_SECRET_ENCRYPTION_KEY` unset.
 
-## Next: Phase 7 — Failure Analysis and Bug Reports
+## Phase 7 — Failure Analysis and Bug Reports (done)
 
-Per spec §25 Phase 7: failure classification, evidence correlation,
-structured bug reports, Markdown/JSON export, duplicate hints, severity
-model. This is the first phase that would route through
-`internal/providers`' task routing to call an AI provider — always
-advisory (spec §2.4), and root cause must be presented as a hypothesis,
-never a fact.
+- `internal/failures`: `Classify` deterministically pattern-matches a
+  failed run's stdout/stderr/exit code against an ordered list of
+  signatures into one of 17 failure types (spec §13.1), a **fixed**
+  severity mapping (spec §14), and a root cause hypothesis that is
+  **never** assigned "high" confidence — a regex match over log text
+  isn't certain enough to claim that. `AssessFlakiness` implements the
+  spec §13.2 policy (insufficient evidence / suspect / flaky_candidate /
+  confirmed flaky at a 60% failure-rate threshold / likely_real_defect)
+  from a test case's run history; a flaky label is attached, never used
+  to hide a bug.
+- `internal/bugreports`: `BugReport` (spec §14's full field list) with
+  `UpsertFromFailure` keyed by `(project_id, test_case_id,
+  failure_type)` — a Postgres `ON CONFLICT ... DO UPDATE`, so repeated
+  failures of the same kind bump `frequency`/`last_observed_at` in place
+  instead of spawning duplicate rows, and a `resolved` bug flips to
+  `reopened` on recurrence rather than silently absorbing the update.
+  Cross-test-case duplicates get a `possible_duplicate_of_id` **hint**
+  (never an automatic merge — spec §17.6 "Duplicate linking" is a manual
+  UI action). `RenderMarkdown`/`RenderJSON` always label the root cause
+  as an unverified hypothesis, never a diagnosis.
+- Evidence correlation reuses real, already-built data rather than
+  fabricating a multi-layer log pipeline E2E Sentinel doesn't have: the
+  run's own captured stdout/stderr/screenshot/video/trace artifacts
+  (Phase 5), and a "related graph path" looked up in the Application
+  Graph (Phase 3) — an edge into and/or out of the failing route,
+  omitted (not guessed) when the route isn't in the graph.
+- Wired into `POST /tests/{id}/run` (Phase 5): classification and the
+  bug upsert happen **before** the run's status flips to `failed`/
+  `error`, so a client polling `GET /runs/{id}` never observes a
+  terminal run whose bug report doesn't exist yet — a real ordering bug
+  caught while adding the regression test for this, fixed by moving the
+  correlation call ahead of the final `UpdateStatus`.
+- API: `GET /bugs`, `GET /bugs/{id}`, `POST /bugs/{id}/resolve`,
+  `POST /bugs/{id}/reopen`, `POST /bugs/{id}/notes`,
+  `GET /bugs/{id}/export/markdown`, `GET /bugs/{id}/export/json` (the
+  latter two forcing a download with the same nosniff/attachment headers
+  as artifact downloads, spec §23.5 — a bug report embeds captured
+  output from the target application, which is untrusted content). Web:
+  functional Bugs page (search/severity/status filters, evidence,
+  root-cause-as-hypothesis, resolve/reopen, notes, export links).
+- No AI call is made or possible here — this stays on the same
+  deterministic, no-AI baseline as test planning (Phase 4) and test
+  generation (Phase 5); the first real AI consumer remains a later phase.
+
+Acceptance criteria (spec) — verified: a deliberately-failing test run
+(network-failure-shaped stderr) produced exactly one bug candidate with
+the correct failure_type/severity and non-empty evidence; running the
+same test again bumped frequency to 2 without creating a second bug;
+resolving a bug and triggering the same failure again flipped it back to
+`reopened`; both exports were checked to literally contain "unverified
+hypothesis" (Markdown) / `root_cause_is_unverified_hypothesis: true`
+(JSON); severity/status filtering was checked against `GET /bugs`.
+
+## Next: Phase 8 — Fix Proposals
+
+Per spec §25 Phase 8: patch generation, Monaco diff view, risk
+explanation, temporary workspace application, regression selection,
+approval workflow, repository application after final approval. This is
+the first phase where an AI provider (Phase 6) could plausibly be
+called — architecture requires the AI can never write directly to the
+repository; every write goes through an explicit human approval gate.

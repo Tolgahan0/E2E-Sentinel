@@ -227,6 +227,47 @@ export interface TaskRoutingResponse {
   routes: Record<string, string>;
 }
 
+export interface BugNote {
+  author: string;
+  text: string;
+  created_at: string;
+}
+
+export interface BugReport {
+  id: string;
+  project_id: string;
+  failure_id: string;
+  test_case_id: string;
+  environment_id: string;
+  title: string;
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'informational';
+  failure_type: string;
+  affected_service: string;
+  affected_route: string;
+  preconditions: string;
+  steps_to_reproduce: string[];
+  expected_result: string;
+  actual_result: string;
+  artifact_ids: string[];
+  error_message: string;
+  first_observed_at: string;
+  last_observed_at: string;
+  frequency: number;
+  root_cause_hypothesis: string;
+  root_cause_confidence: string;
+  root_cause_is_unverified_hypothesis: boolean;
+  flaky_assessment: string;
+  related_graph_path: string;
+  regression_test_ids: string[];
+  possible_duplicate_of_id?: string;
+  status: 'open' | 'resolved' | 'reopened';
+  notes: BugNote[];
+}
+
+export interface BugsResponse {
+  bugs: BugReport[] | null;
+}
+
 /**
  * fetchJSON calls a same-origin /api/* route (a server-side Route Handler
  * that proxies to sentinel-api, reading SENTINEL_API_URL at request time)

@@ -14,7 +14,7 @@ without explicit approval.
 
 This repository is being built incrementally against
 [`E2E_SENTINEL_CODEX_MASTER_SPEC.md`](E2E_SENTINEL_CODEX_MASTER_SPEC.md).
-**Phases 0–6** are implemented; see [docs/ROADMAP.md](docs/ROADMAP.md)
+**Phases 0–7** are implemented; see [docs/ROADMAP.md](docs/ROADMAP.md)
 for what comes next and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) /
 [ADR 0001](docs/adr/0001-phase0-foundation.md) for the reasoning behind
 the foundational choices.
@@ -68,10 +68,20 @@ the foundational choices.
   at rest and never returned through the API — only whether one is
   configured. No phase yet makes an actual AI call; the app is fully
   usable with zero providers configured (spec §16.6 "No-AI Mode").
+- **Failure analysis & bug reports**: a failed test run is automatically
+  classified (17 failure types, a fixed severity mapping, a flaky-test
+  assessment) and turned into a structured, evidence-backed bug report —
+  deterministically, no AI call involved. Repeated failures of the same
+  kind on the same test update one bug (frequency/last-observed) instead
+  of spawning duplicates; a different test with the same failure type
+  gets an unconfirmed "possible duplicate" hint. Root cause is always
+  presented as an explicitly-labeled hypothesis, never a confirmed
+  diagnosis. Bugs can be searched/filtered, resolved, reopened, annotated,
+  and exported as Markdown or JSON.
 - A Next.js panel (`apps/web`) on port `9090`: Dashboard, Audit Logs,
   Projects, Discovery (findings + services), Application Map, Test
-  Inventory, Runs, and AI Providers are functional; the remaining nav
-  sections are stub pages pointing at the phase that implements them.
+  Inventory, Runs, AI Providers, and Bugs are functional; the remaining
+  nav sections are stub pages pointing at the phase that implements them.
 - Versioned SQL migrations with a small custom runner.
 - Docker Compose stack: `sentinel-api`, `sentinel-web`, `postgres`,
   `redis`, plus disposable Playwright runner containers launched on

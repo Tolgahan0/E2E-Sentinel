@@ -60,6 +60,27 @@ func (s *PostgresStore) ListByProject(ctx context.Context, projectID string) ([]
 	return out, rows.Err()
 }
 
+func (s *PostgresStore) ListByTestCase(ctx context.Context, testCaseID string) ([]TestRun, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, project_id, test_case_id, status, runner_type, trigger_type, triggered_by, exit_code, summary, started_at, finished_at
+		FROM test_runs WHERE test_case_id = $1 ORDER BY started_at
+	`, testCaseID)
+	if err != nil {
+		return nil, fmt.Errorf("runs: listing by test case: %w", err)
+	}
+	defer rows.Close()
+
+	var out []TestRun
+	for rows.Next() {
+		r, err := scanRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 func (s *PostgresStore) UpdateStatus(ctx context.Context, id, status string, exitCode *int, summary string, finished bool) (TestRun, error) {
 	row := s.pool.QueryRow(ctx, `
 		UPDATE test_runs SET

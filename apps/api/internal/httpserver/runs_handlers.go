@@ -150,7 +150,6 @@ func executeRunAsync(deps Dependencies, runID string, input runs.RunInput) {
 	result, err := deps.Runner.Execute(ctx, input)
 	if err != nil {
 		logger.Error().Err(err).Str("run_id", runID).Msg("runner execution failed")
-		_, _ = deps.Runs.UpdateStatus(ctx, runID, runs.StatusError, nil, err.Error(), true)
 		// Execute may have already created the workspace directory
 		// (writing the spec file) before failing to create/start the
 		// container — clean it up here too, not just on the success
@@ -158,6 +157,18 @@ func executeRunAsync(deps Dependencies, runID string, input runs.RunInput) {
 		if err := deps.Runner.Cleanup(ctx, runID); err != nil {
 			logger.Warn().Err(err).Str("run_id", runID).Msg("runner cleanup after execution failure failed")
 		}
+		// Failure correlation (and the workspace cleanup above) runs
+		// BEFORE the status update below, not after: a caller polling
+		// GET /runs/{id} must never observe "error" before its bug
+		// report and cleanup already happened.
+		if run, getErr := deps.Runs.Get(ctx, runID); getErr == nil {
+			// No RunResult exists (Execute failed before producing one) —
+			// classify from the error alone so an infra-level failure
+			// (spec's "runner failure" type) still becomes a bug
+			// candidate, same as an assertion failure would.
+			recordFailureAndBug(ctx, deps, run, &runs.RunResult{ExitCode: -1, Stderr: err.Error()}, nil)
+		}
+		_, _ = deps.Runs.UpdateStatus(ctx, runID, runs.StatusError, nil, err.Error(), true)
 		return
 	}
 
@@ -176,21 +187,31 @@ func executeRunAsync(deps Dependencies, runID string, input runs.RunInput) {
 		status = runs.StatusFailed
 	}
 
-	saveRunArtifacts(ctx, deps, runID, result)
+	artifactIDs := saveRunArtifacts(ctx, deps, runID, result)
 
 	if artifactFiles, err := deps.Runner.CollectArtifacts(ctx, runID); err != nil {
 		logger.Warn().Err(err).Str("run_id", runID).Msg("collecting artifacts failed")
 	} else {
 		retentionUntil := time.Now().Add(artifacts.RetentionFor(status))
 		for _, f := range artifactFiles {
-			if _, err := deps.Artifacts.Save(ctx, runID, f.Kind, f.MimeType, f.Data, retentionUntil); err != nil {
+			if a, err := deps.Artifacts.Save(ctx, runID, f.Kind, f.MimeType, f.Data, retentionUntil); err != nil {
 				logger.Warn().Err(err).Str("run_id", runID).Str("kind", f.Kind).Msg("saving artifact failed")
+			} else {
+				artifactIDs = append(artifactIDs, a.ID)
 			}
 		}
 	}
 
 	if err := deps.Runner.Cleanup(ctx, runID); err != nil {
 		logger.Warn().Err(err).Str("run_id", runID).Msg("runner cleanup failed")
+	}
+
+	// Failure correlation runs BEFORE the final status update, not
+	// after: a caller polling GET /runs/{id} only ever observes a
+	// terminal status once the corresponding bug report already exists,
+	// avoiding a race where "failed" is visible before its bug is.
+	if status == runs.StatusFailed {
+		recordFailureAndBug(ctx, deps, current, result, artifactIDs)
 	}
 
 	exitCode := result.ExitCode
@@ -207,18 +228,24 @@ func executeRunAsync(deps Dependencies, runID string, input runs.RunInput) {
 	}
 }
 
-func saveRunArtifacts(ctx context.Context, deps Dependencies, runID string, result *runs.RunResult) {
+func saveRunArtifacts(ctx context.Context, deps Dependencies, runID string, result *runs.RunResult) []string {
+	var artifactIDs []string
 	retentionUntil := time.Now().Add(artifacts.RetentionDefault)
 	if result.Stdout != "" {
-		if _, err := deps.Artifacts.Save(ctx, runID, artifacts.KindStdout, "text/plain; charset=utf-8", []byte(result.Stdout), retentionUntil); err != nil {
+		if a, err := deps.Artifacts.Save(ctx, runID, artifacts.KindStdout, "text/plain; charset=utf-8", []byte(result.Stdout), retentionUntil); err != nil {
 			deps.Logger.Warn().Err(err).Str("run_id", runID).Msg("saving stdout artifact failed")
+		} else {
+			artifactIDs = append(artifactIDs, a.ID)
 		}
 	}
 	if result.Stderr != "" {
-		if _, err := deps.Artifacts.Save(ctx, runID, artifacts.KindStderr, "text/plain; charset=utf-8", []byte(result.Stderr), retentionUntil); err != nil {
+		if a, err := deps.Artifacts.Save(ctx, runID, artifacts.KindStderr, "text/plain; charset=utf-8", []byte(result.Stderr), retentionUntil); err != nil {
 			deps.Logger.Warn().Err(err).Str("run_id", runID).Msg("saving stderr artifact failed")
+		} else {
+			artifactIDs = append(artifactIDs, a.ID)
 		}
 	}
+	return artifactIDs
 }
 
 func handleGetRun(deps Dependencies) http.HandlerFunc {

@@ -6,7 +6,7 @@ and §23 for the full target model; this file states what's true *today*.
 [docs/THREAT_MODEL.md](THREAT_MODEL.md) covers threat areas in more depth
 as each phase introduces the surface they apply to.
 
-## Current state (Phases 0–6)
+## Current state (Phases 0–7)
 
 - **Target-repository access is read-only and path-validated.**
   `internal/projects.ValidateRepositoryPath` resolves the caller-supplied
@@ -55,11 +55,23 @@ as each phase introduces the surface they apply to.
   run, verified via `docker ps -a --filter name=sentinel-run-` returning
   empty after both passing and failing runs, including when execution
   fails outright.
-- **Artifact downloads set defensive headers.** `GET
+- **Artifact and bug report downloads set defensive headers.** `GET
   /artifacts/{id}/content` always sets `X-Content-Type-Options: nosniff`
   and forces `Content-Disposition: attachment` for every artifact kind
   except screenshots (spec §23.5) — a trace/log/HAR file is untrusted
-  content and must never be interpreted as HTML by a browser tab.
+  content and must never be interpreted as HTML by a browser tab. `GET
+  /bugs/{id}/export/markdown` and `/export/json` apply the same two
+  headers, since a bug report embeds captured stdout/stderr from the
+  target application under test — content E2E Sentinel does not control.
+- **Failure classification is deterministic and makes no AI call.**
+  `internal/failures.Classify` pattern-matches a failed run's own
+  captured stdout/stderr — it never sends that content anywhere, AI
+  provider or otherwise, and no phase before Phase 8 does. Bug reports
+  built from it (`internal/bugreports`) always mark
+  `root_cause_hypothesis` with an explicit
+  `root_cause_is_unverified_hypothesis: true` (API/export JSON) or an
+  "(unverified hypothesis)" label (Markdown export, web UI) — never
+  presented as a confirmed diagnosis.
 - **Production-unsafe approvals are blocked at the API layer, not just
   the UI.** `POST /tests/{id}/approve` returns 403 for a mutating test
   case when any of the project's environments is classified `production`

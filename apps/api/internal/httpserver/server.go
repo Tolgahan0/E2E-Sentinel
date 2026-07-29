@@ -15,8 +15,10 @@ import (
 
 	"e2e-sentinel/apps/api/internal/artifacts"
 	"e2e-sentinel/apps/api/internal/audit"
+	"e2e-sentinel/apps/api/internal/bugreports"
 	"e2e-sentinel/apps/api/internal/discovery"
 	"e2e-sentinel/apps/api/internal/environments"
+	"e2e-sentinel/apps/api/internal/failures"
 	"e2e-sentinel/apps/api/internal/graph"
 	"e2e-sentinel/apps/api/internal/planning"
 	"e2e-sentinel/apps/api/internal/projects"
@@ -50,6 +52,8 @@ type Dependencies struct {
 	Artifacts    artifacts.Store
 	Providers    providers.Store
 	Settings     settings.Store
+	Failures     failures.Store
+	Bugs         bugreports.Store
 	// ProviderHealth performs the live "test connection" check (spec
 	// §16.3). Always set — building it needs no credentials of its own.
 	ProviderHealth *providers.HealthChecker
@@ -123,6 +127,18 @@ func NewRouter(deps Dependencies) http.Handler {
 			r.Route("/{providerID}", func(r chi.Router) {
 				r.Patch("/", handlePatchProvider(deps))
 				r.Post("/test", handleTestProviderConnection(deps))
+			})
+		})
+
+		r.Route("/bugs", func(r chi.Router) {
+			r.Get("/", handleListBugs(deps))
+			r.Route("/{bugID}", func(r chi.Router) {
+				r.Get("/", handleGetBug(deps))
+				r.Post("/resolve", handleResolveBug(deps))
+				r.Post("/reopen", handleReopenBug(deps))
+				r.Post("/notes", handleAddBugNote(deps))
+				r.Get("/export/markdown", handleExportBugMarkdown(deps))
+				r.Get("/export/json", handleExportBugJSON(deps))
 			})
 		})
 	})

@@ -71,3 +71,22 @@ func TestMemoryStore_ListByProjectFilters(t *testing.T) {
 		t.Fatalf("got %d runs, want 1", len(list))
 	}
 }
+
+func TestMemoryStore_ListByTestCaseOrdersOldestFirst(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+	first, _ := store.Create(ctx, TestRun{ProjectID: "p1", TestCaseID: "t1"})
+	second, _ := store.Create(ctx, TestRun{ProjectID: "p1", TestCaseID: "t1"})
+	store.Create(ctx, TestRun{ProjectID: "p1", TestCaseID: "t2"})
+
+	list, err := store.ListByTestCase(ctx, "t1")
+	if err != nil {
+		t.Fatalf("ListByTestCase() error: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("got %d runs, want 2", len(list))
+	}
+	if list[0].ID != first.ID || list[1].ID != second.ID {
+		t.Errorf("order = [%s, %s], want [%s, %s]", list[0].ID, list[1].ID, first.ID, second.ID)
+	}
+}

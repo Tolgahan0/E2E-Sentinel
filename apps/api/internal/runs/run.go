@@ -44,5 +44,9 @@ type Store interface {
 	Create(ctx context.Context, run TestRun) (TestRun, error)
 	Get(ctx context.Context, id string) (TestRun, error)
 	ListByProject(ctx context.Context, projectID string) ([]TestRun, error)
+	// ListByTestCase returns every run of a single test case, oldest
+	// first — used to build the outcome history for flaky assessment
+	// (spec §13.2).
+	ListByTestCase(ctx context.Context, testCaseID string) ([]TestRun, error)
 	UpdateStatus(ctx context.Context, id, status string, exitCode *int, summary string, finished bool) (TestRun, error)
 }
