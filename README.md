@@ -63,6 +63,21 @@ for what that means and why.
 make down        # stop the stack
 ```
 
+### Add your own project in one command
+
+No AI coding assistant needed for this part — it's a plain script:
+
+```bash
+./scripts/onboard.sh https://github.com/you/your-app
+# or a repo you already have locally:
+./scripts/onboard.sh ../your-app
+```
+
+It brings the stack up if needed, gets your repo into `./workspace`,
+registers the project, and runs discovery — then prints the panel URL
+to open next. See [docs/QUICKSTART.md](docs/QUICKSTART.md) for exactly
+what it does and the options it takes.
+
 See [docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md) for running the
 API and web app outside Docker, and
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for deployment notes.

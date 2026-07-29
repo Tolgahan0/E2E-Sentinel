@@ -1,4 +1,4 @@
-.PHONY: dev test lint build up down migrate scan
+.PHONY: dev test lint build up down migrate scan onboard
 
 # Runs the API and web app locally (not in Docker), for fast iteration.
 # Requires `make up` (or an equivalent local Postgres/Redis) running first.
@@ -23,6 +23,13 @@ up:
 	@mkdir -p runner-workspaces workspace
 	SENTINEL_RUNNER_HOST_WORKSPACE_DIR="$$(pwd)/runner-workspaces" docker compose build playwright-runner websocket-runner
 	SENTINEL_RUNNER_HOST_WORKSPACE_DIR="$$(pwd)/runner-workspaces" docker compose up -d --build
+
+# Integrate an external repository in one command — no AI coding
+# assistant required. See docs/QUICKSTART.md and scripts/onboard.sh.
+#   make onboard SOURCE=https://github.com/acme/app
+#   make onboard SOURCE=../my-app NAME="My App"
+onboard:
+	@./scripts/onboard.sh "$(SOURCE)" "$(NAME)"
 
 down:
 	docker compose down

@@ -85,6 +85,7 @@ single source of truth for what's wired to what).
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | Health/readiness, logs, audit trail, retention, backups. |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Docker Compose single-host deployment shape. |
 | [docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md) | Prerequisites, running the stack locally. |
+| [docs/QUICKSTART.md](docs/QUICKSTART.md) | `scripts/onboard.sh` — integrating an external repository (git URL or local path) in one command, no AI assistant required. |
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Common setup failures and fixes. |
 | [docs/adr/](docs/adr/) | Architecture Decision Records — read before reversing a past decision. |
 
