@@ -5,9 +5,11 @@
   --sentinel-text: #e6e9ef;
   --sentinel-muted: #9aa4b2;
   --sentinel-accent: #4f8cff;
+  --sentinel-accent-rgb: 79, 140, 255;
   --sentinel-ok: #34c77b;
   --sentinel-warn: #e0a72e;
   --sentinel-danger: #e05a4e;
+  --sentinel-danger-rgb: 224, 90, 78;
 }
 
 @media (prefers-color-scheme: light) {
@@ -18,6 +20,7 @@
     --sentinel-text: #14171c;
     --sentinel-muted: #565f6b;
     --sentinel-accent: #2f5fd0;
+    --sentinel-accent-rgb: 47, 95, 208;
   }
 }
 
@@ -121,50 +124,83 @@ a {
 }
 
 /* Dashboard pipeline flow — a horizontal row of clickable stage cards
-   connected by arrows, each showing that stage's live count and
-   whether it currently needs a human decision (data-attention). */
+   joined by connectors carrying an animated pulse (data actually moving
+   through the system), each stage showing its live count and whether it
+   currently needs a human decision (data-attention). */
 .sentinel-pipeline {
+  position: relative;
   display: flex;
   align-items: stretch;
-  gap: 0.5rem;
+  gap: 0;
   overflow-x: auto;
-  margin-top: 1rem;
-  padding-bottom: 0.25rem;
+  overflow-y: visible;
+  margin-top: 1.25rem;
+  padding: 0.5rem 0.25rem 1rem;
+  background-image: radial-gradient(var(--sentinel-border) 1px, transparent 1px);
+  background-size: 16px 16px;
+  background-position: -4px -4px;
 }
 
 .sentinel-pipeline-stage {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  min-width: 150px;
-  padding: 0.75rem 0.9rem;
-  border-radius: 8px;
+  gap: 0.3rem;
+  min-width: 158px;
+  padding: 0.8rem 0.95rem;
+  border-radius: 10px;
   border: 1px solid var(--sentinel-border);
-  background: var(--sentinel-bg);
+  background: var(--sentinel-surface);
   text-decoration: none;
   color: var(--sentinel-text);
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+
+.sentinel-pipeline-stage::before {
+  /* Left accent bar — semantic state at a glance, independent of the
+     accent hue used for hover/focus. */
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.6rem;
+  bottom: 0.6rem;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--sentinel-border);
+  transition: background 0.15s ease;
 }
 
 .sentinel-pipeline-stage:hover {
   border-color: var(--sentinel-accent);
+  transform: translateY(-1px);
+}
+
+.sentinel-pipeline-stage:hover::before {
+  background: var(--sentinel-accent);
 }
 
 .sentinel-pipeline-stage[data-attention='true'] {
   border-color: var(--sentinel-danger);
-  background: color-mix(in srgb, var(--sentinel-danger) 10%, var(--sentinel-bg));
+  animation: sentinel-attention-pulse 2.4s ease-in-out infinite;
+}
+
+.sentinel-pipeline-stage[data-attention='true']::before {
+  background: var(--sentinel-danger);
 }
 
 .sentinel-pipeline-stage-label {
   font-size: 0.72rem;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   color: var(--sentinel-muted);
 }
 
 .sentinel-pipeline-stage-value {
-  font-size: 1.05rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 1.1rem;
   font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .sentinel-pipeline-stage[data-attention='true'] .sentinel-pipeline-stage-value {
@@ -176,23 +212,147 @@ a {
   color: var(--sentinel-muted);
 }
 
-.sentinel-pipeline-arrow {
-  display: flex;
+.sentinel-pipeline-stage-live {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  color: var(--sentinel-muted);
-  font-size: 1.2rem;
+  gap: 0.35rem;
+  color: var(--sentinel-accent);
+  font-weight: 600;
+}
+
+.sentinel-pipeline-stage-live::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--sentinel-accent);
+  box-shadow: 0 0 0 0 rgba(var(--sentinel-accent-rgb), 0.5);
+  animation: sentinel-live-dot 1.6s ease-out infinite;
+}
+
+/* Connector between two stages: a static track plus a small pulse that
+   travels along it, left to right, looping — the "data flowing through
+   the pipeline" visual. Direction reverses to vertical on narrow
+   screens via the media query below; the pulse keeps moving along the
+   connector's own local axis either way. */
+.sentinel-pipeline-connector {
+  position: relative;
+  width: 2.75rem;
   flex-shrink: 0;
-  padding: 0 0.1rem;
+  align-self: center;
+  height: 2px;
+  background: var(--sentinel-border);
+}
+
+.sentinel-pipeline-connector::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: -1px;
+  width: 6px;
+  height: 6px;
+  border-top: 1px solid var(--sentinel-border);
+  border-right: 1px solid var(--sentinel-border);
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.sentinel-pipeline-connector-pulse {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 7px;
+  height: 7px;
+  margin-top: -3.5px;
+  border-radius: 50%;
+  background: var(--sentinel-accent);
+  box-shadow: 0 0 8px 2px var(--sentinel-accent);
+  animation: sentinel-flow 2.4s linear infinite;
+  animation-delay: var(--sentinel-flow-delay, 0s);
+}
+
+@keyframes sentinel-flow {
+  0% {
+    left: 0;
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  92% {
+    opacity: 1;
+  }
+  100% {
+    left: calc(100% - 7px);
+    opacity: 0;
+  }
+}
+
+@keyframes sentinel-attention-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(var(--sentinel-danger-rgb), 0.3);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(var(--sentinel-danger-rgb), 0);
+  }
+}
+
+@keyframes sentinel-live-dot {
+  0% {
+    box-shadow: 0 0 0 0 rgba(var(--sentinel-accent-rgb), 0.5);
+  }
+  100% {
+    box-shadow: 0 0 0 6px rgba(var(--sentinel-accent-rgb), 0);
+  }
 }
 
 @media (max-width: 900px) {
   .sentinel-pipeline {
     flex-direction: column;
+    background-position: 0 0;
   }
-  .sentinel-pipeline-arrow {
-    transform: rotate(90deg);
-    padding: 0.1rem 0;
+  .sentinel-pipeline-connector {
+    width: 2px;
+    height: 1.75rem;
+    align-self: flex-start;
+    margin-left: 1.1rem;
+  }
+  .sentinel-pipeline-connector::after {
+    top: unset;
+    bottom: -1px;
+    left: 50%;
+    transform: translateX(-50%) rotate(135deg);
+  }
+  .sentinel-pipeline-connector-pulse {
+    left: 50%;
+    top: 0;
+    margin-left: -3.5px;
+    margin-top: 0;
+    animation-name: sentinel-flow-vertical;
+  }
+  @keyframes sentinel-flow-vertical {
+    0% {
+      top: 0;
+      opacity: 0;
+    }
+    8% {
+      opacity: 1;
+    }
+    92% {
+      opacity: 1;
+    }
+    100% {
+      top: calc(100% - 7px);
+      opacity: 0;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sentinel-pipeline-connector-pulse {
+    animation: none;
+    opacity: 0.6;
+    left: 50%;
   }
 }
 

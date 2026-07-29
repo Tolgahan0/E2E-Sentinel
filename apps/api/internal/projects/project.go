@@ -50,6 +50,10 @@ type Store interface {
 	UpdateName(ctx context.Context, id, name string) (Project, error)
 	SetDiscoveryStatus(ctx context.Context, id, status string, lastDiscoveredAt *time.Time) error
 	SlugExists(ctx context.Context, slug string) (bool, error)
+	// Delete removes a project and (via foreign-key cascade) everything
+	// derived from it — see the Postgres implementation's doc comment
+	// for the full list.
+	Delete(ctx context.Context, id string) error
 }
 
 var slugSanitizer = regexp.MustCompile(`[^a-z0-9]+`)

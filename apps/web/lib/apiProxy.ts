@@ -53,3 +53,7 @@ export function proxyPost(upstreamPath: string, search: string, body?: string, a
 export function proxyPatch(upstreamPath: string, search: string, body?: string, authorization?: string | null): Promise<NextResponse> {
   return proxy('PATCH', upstreamPath, search, body, authorization);
 }
+
+export function proxyDelete(upstreamPath: string, search: string, authorization?: string | null): Promise<NextResponse> {
+  return proxy('DELETE', upstreamPath, search, undefined, authorization);
+}

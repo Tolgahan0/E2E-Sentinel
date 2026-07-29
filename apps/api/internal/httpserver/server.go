@@ -167,6 +167,7 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Route("/{projectID}", func(r chi.Router) {
 					r.Get("/", handleGetProject(deps))
 					r.Patch("/", handleUpdateProject(deps))
+					r.Delete("/", handleDeleteProject(deps))
 					r.Post("/discover", handleDiscoverProject(deps))
 					r.Get("/discovery", handleGetDiscovery(deps))
 					r.Get("/environments", handleListEnvironments(deps))

@@ -90,6 +90,24 @@ func (s *PostgresStore) SetDiscoveryStatus(ctx context.Context, id, status strin
 	return nil
 }
 
+// Delete removes a project and, via ON DELETE CASCADE on every child
+// table's project_id foreign key, everything derived from it —
+// environments, discovered services, graph nodes/edges, test cases,
+// test runs, failures, bug reports, fix proposals, Kubernetes
+// resources. Artifact bytes on the local filesystem are not cleaned up
+// here (spec's retention sweep handles that separately); only the
+// artifacts row's metadata cascades.
+func (s *PostgresStore) Delete(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM projects WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("projects: deleting: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *PostgresStore) SlugExists(ctx context.Context, slug string) (bool, error) {
 	var exists bool
 	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM projects WHERE slug = $1)`, slug).Scan(&exists)

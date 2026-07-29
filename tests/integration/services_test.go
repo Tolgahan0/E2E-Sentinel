@@ -55,6 +55,7 @@ services:
 	if createRes.StatusCode != http.StatusCreated {
 		t.Fatalf("create project status = %d, want 201", createRes.StatusCode)
 	}
+	t.Cleanup(func() { deleteProject(t, base, project.ID) })
 
 	if res := postJSON(t, base+"/api/v1/projects/"+project.ID+"/discover", struct{}{}, nil); res.StatusCode != http.StatusOK {
 		t.Fatalf("discover status = %d, want 200", res.StatusCode)

@@ -62,6 +62,7 @@ export default function ProjectsPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [discoveringID, setDiscoveringID] = useState<string | null>(null);
+  const [deletingID, setDeletingID] = useState<string | null>(null);
 
   async function loadProjects() {
     const res = await fetchJSON<ProjectsResponse>('/api/v1/projects');
@@ -110,6 +111,17 @@ export default function ProjectsPage() {
     setDiscoveringID(projectID);
     await mutateJSON('POST', `/api/v1/projects/${projectID}/discover`);
     setDiscoveringID(null);
+    await loadProjects();
+  }
+
+  async function handleDelete(projectID: string, name: string) {
+    const confirmed = window.confirm(
+      `Delete "${name}"? This permanently removes it and everything derived from it — discovered services, the application graph, test cases, runs, bugs, and fix proposals. This cannot be undone.`,
+    );
+    if (!confirmed) return;
+    setDeletingID(projectID);
+    await mutateJSON('DELETE', `/api/v1/projects/${projectID}`);
+    setDeletingID(null);
     await loadProjects();
   }
 
@@ -183,9 +195,16 @@ export default function ProjectsPage() {
                   <td>
                     <DiscoveryStatusBadge status={p.discovery_status} />
                   </td>
-                  <td>
+                  <td style={{ display: 'flex', gap: '0.4rem' }}>
                     <button onClick={() => handleDiscover(p.id)} disabled={discoveringID === p.id}>
                       {discoveringID === p.id ? 'Scanning…' : 'Run discovery'}
+                    </button>
+                    <button
+                      onClick={() => handleDelete(p.id, p.name)}
+                      disabled={deletingID === p.id}
+                      style={{ background: 'var(--sentinel-danger)' }}
+                    >
+                      {deletingID === p.id ? 'Deleting…' : 'Delete'}
                     </button>
                   </td>
                 </tr>

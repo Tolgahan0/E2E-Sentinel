@@ -85,6 +85,16 @@ func (s *MemoryStore) SetDiscoveryStatus(_ context.Context, id, status string, l
 	return nil
 }
 
+func (s *MemoryStore) Delete(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.byID[id]; !ok {
+		return ErrNotFound
+	}
+	delete(s.byID, id)
+	return nil
+}
+
 func (s *MemoryStore) SlugExists(_ context.Context, slug string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

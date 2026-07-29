@@ -30,6 +30,30 @@ func postJSON(t *testing.T, url string, body, out any) *http.Response {
 	return res
 }
 
+// deleteProject removes a project the test created — every test that
+// creates one must call this via t.Cleanup, or it accumulates
+// permanently in the database on every run of this suite (there being
+// no other way to remove a project). Failures are logged, not fatal:
+// cleanup best-effort must never mask the test's own result.
+func deleteProject(t *testing.T, base, projectID string) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodDelete, base+"/api/v1/projects/"+projectID, nil)
+	if err != nil {
+		t.Logf("building DELETE request for project %s: %v", projectID, err)
+		return
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	res, err := client.Do(req)
+	if err != nil {
+		t.Logf("deleting project %s: %v", projectID, err)
+		return
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		t.Logf("deleting project %s: status = %d, want 204", projectID, res.StatusCode)
+	}
+}
+
 func patchJSON(t *testing.T, url string, body any) *http.Response {
 	t.Helper()
 	var buf bytes.Buffer
@@ -107,6 +131,7 @@ func TestProjectDiscovery_FullFlow(t *testing.T) {
 	if project.ID == "" {
 		t.Fatal("create project did not return an ID")
 	}
+	t.Cleanup(func() { deleteProject(t, base, project.ID) })
 
 	var discovery struct {
 		Findings []struct {

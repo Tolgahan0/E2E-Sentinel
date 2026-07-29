@@ -123,6 +123,55 @@ func TestGetProject_NotFound(t *testing.T) {
 	}
 }
 
+func TestDeleteProject_NotFound(t *testing.T) {
+	router := NewRouter(newTestDeps(nil, nil))
+	rec := doJSON(t, router, http.MethodDelete, "/api/v1/projects/does-not-exist", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+// TestDeleteProject_Succeeds only checks the project row itself —
+// cross-entity cascade (environments, test cases, runs, ...) is
+// enforced by Postgres's ON DELETE CASCADE foreign keys (see
+// projects.PostgresStore.Delete's doc comment), which the in-memory
+// stores used here don't replicate; that cascade is a Postgres-level
+// guarantee, not application logic to unit test per entity type.
+func TestDeleteProject_Succeeds(t *testing.T) {
+	router := NewRouter(newTestDeps(nil, nil))
+
+	createRec := doJSON(t, router, http.MethodPost, "/api/v1/projects", map[string]string{"name": "Temp", "repository_path": t.TempDir()})
+	var project struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(createRec.Body.Bytes(), &project)
+
+	deleteRec := doJSON(t, router, http.MethodDelete, "/api/v1/projects/"+project.ID, nil)
+	if deleteRec.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, want 204, body=%s", deleteRec.Code, deleteRec.Body.String())
+	}
+
+	getRec := doJSON(t, router, http.MethodGet, "/api/v1/projects/"+project.ID, nil)
+	if getRec.Code != http.StatusNotFound {
+		t.Fatalf("get after delete status = %d, want 404", getRec.Code)
+	}
+}
+
+func TestDeleteProject_DoubleDeleteIsNotFound(t *testing.T) {
+	router := NewRouter(newTestDeps(nil, nil))
+	createRec := doJSON(t, router, http.MethodPost, "/api/v1/projects", map[string]string{"name": "Temp", "repository_path": t.TempDir()})
+	var project struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(createRec.Body.Bytes(), &project)
+
+	doJSON(t, router, http.MethodDelete, "/api/v1/projects/"+project.ID, nil)
+	secondRec := doJSON(t, router, http.MethodDelete, "/api/v1/projects/"+project.ID, nil)
+	if secondRec.Code != http.StatusNotFound {
+		t.Fatalf("second delete status = %d, want 404", secondRec.Code)
+	}
+}
+
 func TestDiscoverProject_FullFlow(t *testing.T) {
 	deps := newTestDeps(nil, nil)
 	router := NewRouter(deps)

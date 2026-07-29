@@ -159,6 +159,44 @@ func handleGetProject(deps Dependencies) http.HandlerFunc {
 	}
 }
 
+// handleDeleteProject permanently removes a project and everything
+// derived from it (environments, discovered services, graph, test
+// cases, runs, failures, bug reports, fix proposals, Kubernetes
+// resources — via foreign-key cascade, see projects.Store.Delete). This
+// is destructive and irreversible; the panel confirms with the user
+// before calling it (see apps/web/app/projects/page.tsx).
+func handleDeleteProject(deps Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		projectID := chi.URLParam(r, "projectID")
+
+		project, err := deps.Projects.Get(r.Context(), projectID)
+		if errors.Is(err, projects.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "project_not_found"})
+			return
+		}
+		if err != nil {
+			deps.Logger.Error().Err(err).Msg("getting project for deletion failed")
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+
+		if err := deps.Projects.Delete(r.Context(), projectID); err != nil {
+			deps.Logger.Error().Err(err).Msg("deleting project failed")
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+
+		if err := deps.Audit.Record(r.Context(), audit.Event{
+			ActionType: "project.deleted", ResourceType: "project", ResourceID: projectID,
+			Actor: "user", Metadata: map[string]any{"name": project.Name, "slug": project.Slug},
+		}); err != nil {
+			deps.Logger.Error().Err(err).Msg("recording project.deleted audit event failed")
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 func handleUpdateProject(deps Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {

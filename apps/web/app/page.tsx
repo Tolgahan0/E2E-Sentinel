@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import {
   fetchJSON,
   type AuditEvent,
@@ -128,7 +128,7 @@ function PipelineStage({
 }: {
   href: string;
   label: string;
-  value: string;
+  value: ReactNode;
   detail?: string;
   attention?: boolean;
 }) {
@@ -141,11 +141,11 @@ function PipelineStage({
   );
 }
 
-function PipelineArrow() {
+function PipelineConnector({ index }: { index: number }) {
   return (
-    <span className="sentinel-pipeline-arrow" aria-hidden="true">
-      →
-    </span>
+    <div className="sentinel-pipeline-connector" aria-hidden="true">
+      <div className="sentinel-pipeline-connector-pulse" style={{ '--sentinel-flow-delay': `${index * 0.35}s` } as CSSProperties} />
+    </div>
   );
 }
 
@@ -172,14 +172,14 @@ function PipelineFlow({ stats, loaded }: { stats: PipelineStats; loaded: boolean
           value={`${stats.projectsDiscovered}/${stats.projectsTotal} projects`}
           detail="repo scan + Docker/K8s"
         />
-        <PipelineArrow />
+        <PipelineConnector index={0} />
         <PipelineStage
           href="/test-inventory"
           label="2. Plan"
           value={`${stats.testsTotal} test cases`}
           detail="deterministic, no AI required"
         />
-        <PipelineArrow />
+        <PipelineConnector index={1} />
         <PipelineStage
           href="/approvals"
           label="3. Approve"
@@ -187,15 +187,21 @@ function PipelineFlow({ stats, loaded }: { stats: PipelineStats; loaded: boolean
           detail={`${stats.testsApproved} approved`}
           attention={stats.testsPendingApproval > 0}
         />
-        <PipelineArrow />
+        <PipelineConnector index={2} />
         <PipelineStage
           href="/runs"
           label="4. Run"
-          value={stats.runningNow.length > 0 ? `${stats.runningNow.length} running now` : 'idle'}
+          value={
+            stats.runningNow.length > 0 ? (
+              <span className="sentinel-pipeline-stage-live">{stats.runningNow.length} running now</span>
+            ) : (
+              'idle'
+            )
+          }
           detail={stats.passRate === null ? 'no completed runs yet' : `${stats.passRate}% pass rate (last ${stats.recentRunsConsidered})`}
           attention={stats.runningNow.length > 0}
         />
-        <PipelineArrow />
+        <PipelineConnector index={3} />
         <PipelineStage
           href="/bugs"
           label="5. Correlate failures"
@@ -203,7 +209,7 @@ function PipelineFlow({ stats, loaded }: { stats: PipelineStats; loaded: boolean
           detail="auto-classified, deduplicated"
           attention={stats.openBugs > 0}
         />
-        <PipelineArrow />
+        <PipelineConnector index={4} />
         <PipelineStage
           href="/fix-proposals"
           label="6. Fix"
@@ -264,7 +270,9 @@ export default function DashboardPage() {
 
       {loaded && stats.runningNow.length > 0 && (
         <section className="sentinel-card" style={{ marginTop: '1rem' }}>
-          <h3 style={{ marginTop: 0 }}>Currently running</h3>
+          <h3 style={{ marginTop: 0 }}>
+            <span className="sentinel-pipeline-stage-live">Currently running</span>
+          </h3>
           <table className="sentinel-table">
             <thead>
               <tr>

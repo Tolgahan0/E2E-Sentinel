@@ -103,3 +103,21 @@ func TestMemoryStore_UpdateNameAndDiscoveryStatus(t *testing.T) {
 		t.Errorf("UpdateName(missing) = %v, want ErrNotFound", err)
 	}
 }
+
+func TestMemoryStore_Delete(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+
+	created, _ := store.Create(ctx, Project{Name: "Temp", Slug: "temp", RepositoryPath: "/tmp/temp"})
+
+	if err := store.Delete(ctx, created.ID); err != nil {
+		t.Fatalf("Delete() error: %v", err)
+	}
+	if _, err := store.Get(ctx, created.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Get() after delete = %v, want ErrNotFound", err)
+	}
+
+	if err := store.Delete(ctx, "missing"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Delete(missing) = %v, want ErrNotFound", err)
+	}
+}

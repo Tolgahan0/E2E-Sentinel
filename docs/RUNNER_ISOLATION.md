@@ -129,6 +129,26 @@ generated assertions are necessarily smoke-level:
 This ceiling is deliberate and documented, not hidden — see spec §36's
 prohibition on overclaiming coverage.
 
+### What an environment's `base_url` needs to actually be reachable
+
+Every runner container (`DockerPlaywrightRunner`/`DockerWebSocketRunner`)
+is created with `NetworkMode: "bridge"` — Docker's default bridge
+network, which has **no** built-in DNS resolution for container names
+(unlike a `docker-compose.yml`-created custom network, e.g.
+`e2e-sentinel_default`, where `sentinel-web` resolves to that
+container's IP automatically). Setting an environment's `base_url` to a
+Compose service name (`http://sentinel-web:9090`) will fail with
+`getaddrinfo ENOTFOUND` from inside the runner — this looks like a
+system bug the first time you hit it, but it's the expected behavior of
+the default bridge network, not a defect.
+
+Point `base_url` at whatever the target actually publishes on the host
+instead — `http://host.docker.internal:<published-port>` on
+Docker Desktop (macOS/Windows), the same convention already used for
+`SENTINEL_OLLAMA_AUTODETECT_URL` (see
+[docs/AI_PROVIDER_GUIDE.md](AI_PROVIDER_GUIDE.md)) — or a real external
+URL if the target isn't local at all.
+
 ## Artifacts and retention
 
 `internal/artifacts.FileStore` stores stdout/stderr always, and

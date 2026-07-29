@@ -444,12 +444,14 @@ export interface MutationResult<T> {
 }
 
 /**
- * mutateJSON POSTs/PATCHes a JSON body to a same-origin /api/* route and
+ * mutateJSON POSTs/PATCHes/DELETEs a same-origin /api/* route and
  * always resolves (never throws), surfacing the API's error string on
- * failure so forms can show it inline.
+ * failure so forms can show it inline. A 204 No Content response (e.g.
+ * a successful DELETE) has no JSON body — data resolves to null, which
+ * is expected there, not a parse failure.
  */
 export async function mutateJSON<T>(
-  method: 'POST' | 'PATCH',
+  method: 'POST' | 'PATCH' | 'DELETE',
   path: string,
   body?: unknown,
 ): Promise<MutationResult<T>> {
