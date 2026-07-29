@@ -36,10 +36,11 @@ apps/api (Go, chi router)
   +-- internal/artifacts     Local-filesystem artifact storage
   +-- internal/providers     AI provider configuration, health checks, task routing
   +-- internal/secretstore   AES-256-GCM encryption for provider API keys
-  +-- internal/redaction     Secret/token/credential scrubbing before AI context (no AI call exists yet)
+  +-- internal/redaction     Secret/token/credential scrubbing (not yet wired into the Phase 8 AI prompt, which sends only curated bug evidence, never raw repository content)
   +-- internal/settings      Generic key/value store (first use: AI task routing)
   +-- internal/failures      Deterministic failure classification + flaky assessment (spec §13)
   +-- internal/bugreports    Structured, deduplicated bug reports (spec §14)
+  +-- internal/fixproposals  Candidate patches: pure-Go diff parser/applier, temp workspace, repo write (spec §15)
   +-- internal/httpserver    HTTP handlers
   |
   +-- PostgreSQL
@@ -49,8 +50,8 @@ apps/api (Go, chi router)
   +-- AI provider APIs (Phase 6; optional, never required)
 ```
 
-Future phases add sibling packages under `internal/` — `fixes/`,
-`approval/`, `scheduler/`, `telemetry/` — exactly as laid out in spec §5.
+Future phases add sibling packages under `internal/` — `scheduler/`,
+`telemetry/` — exactly as laid out in spec §5.
 
 ## Request flow
 
@@ -187,6 +188,13 @@ an edge's endpoints before they have database IDs.
   `ON CONFLICT ... DO UPDATE` rather than accumulating duplicates;
   `possible_duplicate_of_id` self-references another bug as an
   unconfirmed hint, never an automatic merge.
+- `fix_proposals` — see `migrations/0009_fix_proposals.sql`. `unified_diff`
+  is set once at creation and never edited in place — approving a
+  proposal approves exactly that text, and `apply-repository` re-parses
+  this same column, never a regenerated diff (spec §15.2 acceptance:
+  "Applied files match approved diff exactly"). `repository_applied_at`
+  is set at most once (checked atomically by the store), so a proposal
+  can only ever be written to the real repository a single time.
 
 ## Domain flow: running a test (Phase 5)
 
@@ -259,6 +267,51 @@ acceptance: "Root cause is clearly marked as hypothesis"). See
 [docs/FAILURE_CORRELATION.md](FAILURE_CORRELATION.md) for the full
 classification/severity/flaky-detection model.
 
+## Domain flow: proposing and applying a fix (Phase 8)
+
+```text
+POST /bugs/{id}/fix-proposal {unified_diff?}
+  -> given: fixproposals.ParseUnifiedDiff (validates before storing)
+  -> omitted: loadTaskRouting -> providers.Store.Get(routed provider)
+     -> secretstore.Store.Resolve (server-side only)
+     -> providers.Completer.Complete (evidence-only prompt — no
+        repository source is read; see docs/FIX_PROPOSALS.md)
+     -> providers.ExtractUnifiedDiff -> fixproposals.ParseUnifiedDiff
+        (a response with no valid diff fails here, never fabricated)
+  -> fixproposals.Store.Create (status=pending_review, always — an
+     AI-generated proposal is never auto-approved)
+  -> audit: fix_proposal.created
+
+POST /fix-proposals/{id}/apply-workspace
+  -> projects.Store.Get -> repository_path
+  -> fixproposals.ApplyToWorkspace: copy repository_path into a fresh
+     dir under SENTINEL_FIX_WORKSPACES_DIR (skip .git/node_modules/...),
+     parse the diff, apply every file's hunks there — the ORIGINAL
+     repository is never touched by this step
+  -> every target path checked with projects.WithinRoot before any
+     write (a diff's path is untrusted — could escape via "../..")
+  -> fixproposals.Store.RecordWorkspaceApplication(per-file results)
+  -> audit: fix_proposal.applied_workspace
+
+POST /fix-proposals/{id}/approve | /reject | /request-revision
+  -> fixproposals.Store.UpdateApprovalStatus
+  -> audit: fix_proposal.approved | .rejected | .revision_requested
+
+POST /fix-proposals/{id}/apply-repository
+  -> require approval_status == approved (403 otherwise)
+  -> fixproposals.ApplyToRepository(repository_path, the SAME stored
+     unified_diff — never regenerated) [same path-traversal check]
+  -> fixproposals.Store.RecordRepositoryApplication — refuses (409) if
+     repository_applied_at is already set; a proposal can be written to
+     the real repository at most once
+  -> audit: fix_proposal.applied_repository
+```
+
+See [docs/FIX_PROPOSALS.md](FIX_PROPOSALS.md) for the full model,
+including why the AI path never reads repository source and the
+regression-test trade-off (they run against the environment's live
+`base_url`, not an ephemeral deployment of the patched workspace).
+
 ## Domain flow: configuring and testing an AI provider (Phase 6)
 
 ```text
@@ -305,12 +358,16 @@ Per spec §2.2 and §34, there is still no code path that:
 
 - talks to the Kubernetes API (Phase 10) — Docker's is now supported,
   read-only, and optional (Phase 2),
-- makes an actual AI call — Phase 6 delivers provider configuration and
-  health checks, Phase 7 adds deterministic (still no-AI) failure
-  classification; the first real AI consumer is reserved for a later
-  phase (fix generation, Phase 8),
-- writes, commits, or pushes code anywhere (Phase 8),
+- commits, pushes, or creates a branch/PR in git — Phase 8 can write
+  files directly to a repository_path after approval, but has no git
+  plumbing at all (spec §15.3's "dedicated branch"/"push"/"PR creation"
+  safeguards apply to a git-integration feature not yet built),
 - executes anything found inside a scanned repository — discovery only
-  *reads* file names/contents to classify them, it never runs them.
+  *reads* file names/contents to classify them, it never runs them,
+- reads repository source files to give an AI provider real code
+  context — Phase 8's AI-assisted fix generation prompts with only a
+  bug's already-curated evidence (see docs/FIX_PROPOSALS.md); a safe
+  repository-content pipeline (path allowlist + redaction, building on
+  Phase 6's internal/redaction) is reserved for later.
 
 These are reserved extension points for later phases.

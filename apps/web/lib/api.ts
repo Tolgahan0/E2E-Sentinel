@@ -268,6 +268,46 @@ export interface BugsResponse {
   bugs: BugReport[] | null;
 }
 
+export interface FileApplyResult {
+  path: string;
+  action: 'created' | 'modified' | 'deleted';
+  applied: boolean;
+  error?: string;
+}
+
+export interface FixProposal {
+  id: string;
+  project_id: string;
+  bug_id: string;
+  title: string;
+  description: string;
+  risk_level: 'low' | 'medium' | 'high';
+  assumptions: string;
+  potential_side_effects: string;
+  rollback_guidance: string;
+  files_changed: string[];
+  unified_diff: string;
+  regression_test_ids: string[];
+  ai_provider: string;
+  ai_model: string;
+  generated_at: string;
+  approval_status: 'pending_review' | 'approved' | 'rejected' | 'revision_requested';
+  workspace_dir?: string;
+  workspace_apply_results?: FileApplyResult[];
+  workspace_applied_at: string | null;
+  repository_apply_results?: FileApplyResult[];
+  repository_applied_at: string | null;
+}
+
+export interface FixProposalsResponse {
+  fix_proposals: FixProposal[] | null;
+}
+
+export interface FixProposalApplyResult {
+  fix_proposal: FixProposal;
+  all_applied: boolean;
+}
+
 /**
  * fetchJSON calls a same-origin /api/* route (a server-side Route Handler
  * that proxies to sentinel-api, reading SENTINEL_API_URL at request time)

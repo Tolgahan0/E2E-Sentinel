@@ -90,6 +90,12 @@ type Config struct {
 	// probed by the auto-detect helper (spec §16.2). Never scanned
 	// automatically on startup — only on an explicit user request.
 	OllamaAutoDetectURL string
+
+	// FixWorkspacesDir is where a fix proposal's unified diff is applied
+	// to a throwaway COPY of the target repository (spec §15.2 "Apply in
+	// temporary workspace") — never the original repository_path, which
+	// stays read-only until POST /fix-proposals/{id}/apply-repository.
+	FixWorkspacesDir string
 }
 
 // Load reads configuration from environment variables and validates it.
@@ -117,6 +123,7 @@ func Load(getenv func(string) string) (Config, error) {
 		ArtifactsDir:                firstNonEmpty(getenv("SENTINEL_ARTIFACTS_DIR"), "/data/artifacts"),
 		SecretEncryptionKey:         strings.TrimSpace(getenv("SENTINEL_SECRET_ENCRYPTION_KEY")),
 		OllamaAutoDetectURL:         firstNonEmpty(getenv("SENTINEL_OLLAMA_AUTODETECT_URL"), "http://host.docker.internal:11434"),
+		FixWorkspacesDir:            firstNonEmpty(getenv("SENTINEL_FIX_WORKSPACES_DIR"), "/data/fix-workspaces"),
 	}
 
 	if raw := getenv("SENTINEL_SHUTDOWN_TIMEOUT_SECONDS"); raw != "" {

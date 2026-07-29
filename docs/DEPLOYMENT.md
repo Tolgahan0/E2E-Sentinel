@@ -30,6 +30,9 @@ Services:
   `sentinel-artifacts` volume so distroless `sentinel-api` (no shell) can
   write to it; exits immediately, `sentinel-api` waits for it via
   `depends_on: service_completed_successfully`.
+- `fix-workspaces-init` — the same one-shot `chown` pattern, for the
+  `sentinel-fix-workspaces` volume Phase 8's temporary-workspace patch
+  application uses.
 - `sentinel-api` — Go binary in a distroless, non-root image. Applies
   pending migrations on startup before serving traffic. Mounts the
   Docker socket (`group_add` grants access without running as root — see
@@ -65,6 +68,11 @@ See `.env.example` for the full list. Notably:
   feature — including a keyless local Ollama provider — still works.
   Generate with `openssl rand -base64 32`; see
   [docs/AI_PROVIDER_GUIDE.md](AI_PROVIDER_GUIDE.md).
+- `SENTINEL_FIX_WORKSPACES_DIR` — optional, defaults to
+  `/data/fix-workspaces` (backed by the `sentinel-fix-workspaces` volume
+  in Compose). Where Phase 8 applies a fix proposal's diff to a
+  disposable copy of a project's repository before anyone approves
+  writing it for real; see [docs/FIX_PROPOSALS.md](FIX_PROPOSALS.md).
 
 ## Integration tests
 
@@ -86,4 +94,9 @@ add authentication. This matters more than before Phase 5: the Docker
 socket is now mounted into `sentinel-api` by default (a documented
 trade-off — see [docs/RUNNER_ISOLATION.md](RUNNER_ISOLATION.md#why-a-direct-socket-mount)),
 so anyone who can reach `sentinel-api`'s API can, in effect, run
-arbitrary containers on this host.
+arbitrary containers on this host. And from Phase 8 on: if you've
+opted `./workspace` into read-write (see
+[docs/FIX_PROPOSALS.md](FIX_PROPOSALS.md#the-target-repository-must-be-writable))
+to use `apply-repository`, anyone who can reach the API can write to
+that project's files too — there is no authentication gating who can
+approve or apply a fix proposal yet.

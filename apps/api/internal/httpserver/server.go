@@ -19,6 +19,7 @@ import (
 	"e2e-sentinel/apps/api/internal/discovery"
 	"e2e-sentinel/apps/api/internal/environments"
 	"e2e-sentinel/apps/api/internal/failures"
+	"e2e-sentinel/apps/api/internal/fixproposals"
 	"e2e-sentinel/apps/api/internal/graph"
 	"e2e-sentinel/apps/api/internal/planning"
 	"e2e-sentinel/apps/api/internal/projects"
@@ -54,9 +55,18 @@ type Dependencies struct {
 	Settings     settings.Store
 	Failures     failures.Store
 	Bugs         bugreports.Store
+	FixProposals fixproposals.Store
 	// ProviderHealth performs the live "test connection" check (spec
 	// §16.3). Always set — building it needs no credentials of its own.
 	ProviderHealth *providers.HealthChecker
+	// Completer generates a candidate patch from a routed provider (spec
+	// §15, Phase 8). Always set — building it needs no credentials of
+	// its own; whether a provider is actually routed for fix_generation
+	// is checked per-request.
+	Completer *providers.Completer
+	// FixWorkspacesDir is where a fix proposal's diff is applied to a
+	// disposable copy of the repository (spec §15.2).
+	FixWorkspacesDir string
 	// Docker is optional: nil means "no Docker integration configured",
 	// handled the same as an unreachable daemon (spec §25 Phase 2).
 	Docker DockerLister
@@ -139,7 +149,20 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Post("/notes", handleAddBugNote(deps))
 				r.Get("/export/markdown", handleExportBugMarkdown(deps))
 				r.Get("/export/json", handleExportBugJSON(deps))
+				r.Post("/fix-proposal", handleGenerateFixProposal(deps))
 			})
+		})
+
+		r.Get("/projects/{projectID}/fix-proposals", handleListProjectFixProposals(deps))
+
+		r.Route("/fix-proposals/{fixProposalID}", func(r chi.Router) {
+			r.Get("/", handleGetFixProposal(deps))
+			r.Patch("/", handleUpdateFixProposalRegressionTests(deps))
+			r.Post("/approve", handleApproveFixProposal(deps))
+			r.Post("/reject", handleRejectFixProposal(deps))
+			r.Post("/request-revision", handleRequestFixProposalRevision(deps))
+			r.Post("/apply-workspace", handleApplyFixToWorkspace(deps))
+			r.Post("/apply-repository", handleApplyFixToRepository(deps))
 		})
 	})
 

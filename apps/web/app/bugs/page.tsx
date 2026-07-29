@@ -7,6 +7,7 @@ import {
   mutateJSON,
   type BugReport,
   type BugsResponse,
+  type FixProposal,
   type Project,
   type ProjectsResponse,
 } from '@/lib/api';
@@ -121,6 +122,61 @@ function BugDetail({ bug, onChanged }: { bug: BugReport; onChanged: (b: BugRepor
           Add note
         </button>
       </div>
+
+      <GenerateFixProposal bugID={bug.id} projectID={bug.project_id} />
+    </div>
+  );
+}
+
+function GenerateFixProposal({ bugID, projectID }: { bugID: string; projectID: string }) {
+  const [showManual, setShowManual] = useState(false);
+  const [diff, setDiff] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  async function generate(unifiedDiff?: string) {
+    setGenerating(true);
+    setResult(null);
+    const res = await mutateJSON<FixProposal>('POST', `/api/v1/bugs/${bugID}/fix-proposal`, unifiedDiff ? { unified_diff: unifiedDiff } : undefined);
+    setGenerating(false);
+    if (res.ok && res.data) {
+      setResult({ ok: true, message: `Created fix proposal ${res.data.id} — view it on the Fix Proposals page.` });
+      setDiff('');
+      setShowManual(false);
+    } else {
+      setResult({ ok: false, message: res.error ?? 'generation_failed' });
+    }
+  }
+
+  return (
+    <div className="sentinel-card" style={{ marginTop: '0.75rem' }}>
+      <strong>Generate fix proposal</strong>
+      <p className="sentinel-status-unknown" style={{ margin: '0.3rem 0' }}>
+        AI generation uses only this bug&apos;s evidence (no repository source is read) and never applies anything —
+        every proposal requires human review and approval before it can touch the repository.
+      </p>
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <button onClick={() => generate()} disabled={generating}>
+          {generating ? 'Generating…' : 'Generate via AI'}
+        </button>
+        <button onClick={() => setShowManual((v) => !v)}>{showManual ? 'Cancel manual diff' : 'Paste a manual diff'}</button>
+        <a href={`/fix-proposals?project=${projectID}`}>View fix proposals for this project</a>
+      </div>
+      {showManual && (
+        <div style={{ marginTop: '0.5rem' }}>
+          <textarea
+            value={diff}
+            onChange={(e) => setDiff(e.target.value)}
+            placeholder={'--- a/file.go\n+++ b/file.go\n@@ -1,1 +1,1 @@\n-old\n+new'}
+            rows={8}
+            style={{ width: '100%', fontFamily: 'monospace' }}
+          />
+          <button onClick={() => generate(diff)} disabled={generating || !diff.trim()}>
+            Create manual fix proposal
+          </button>
+        </div>
+      )}
+      {result && <p className={result.ok ? 'sentinel-status-ok' : 'sentinel-status-bad'}>{result.message}</p>}
     </div>
   );
 }

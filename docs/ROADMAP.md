@@ -14,7 +14,7 @@ previous one's acceptance criteria are demonstrated (spec §33).
 | 5 | Playwright Runner | **Done** |
 | 6 | AI Providers | **Done** |
 | 7 | Failure Analysis & Bug Reports | **Done** |
-| 8 | Fix Proposals | Not started |
+| 8 | Fix Proposals | **Done** |
 | 9 | Production Hardening | Not started |
 | 10 | Kubernetes Discovery | Not started |
 | 11 | Advanced Test Adapters (WebSocket, Maestro, Detox, k6, ZAP, Nuclei, Schemathesis, Pact, Kafka) | Not started |
@@ -339,11 +339,94 @@ resolving a bug and triggering the same failure again flipped it back to
 hypothesis" (Markdown) / `root_cause_is_unverified_hypothesis: true`
 (JSON); severity/status filtering was checked against `GET /bugs`.
 
-## Next: Phase 8 — Fix Proposals
+## Phase 8 — Fix Proposals (done)
 
-Per spec §25 Phase 8: patch generation, Monaco diff view, risk
-explanation, temporary workspace application, regression selection,
-approval workflow, repository application after final approval. This is
-the first phase where an AI provider (Phase 6) could plausibly be
-called — architecture requires the AI can never write directly to the
-repository; every write goes through an explicit human approval gate.
+- `internal/providers` gained a `Completer` — the first actual AI call
+  anywhere in the codebase, reusing the per-type request/response
+  pattern already established for `HealthChecker` across all six
+  provider types (Ollama's `/api/chat`, OpenAI/compatible/Azure's
+  `/chat/completions` shape, Anthropic's `/v1/messages`, Gemini's
+  `generateContent`). `ExtractUnifiedDiff` requires the response to
+  contain a fenced ` ```diff ` block starting with a real `---` header —
+  anything else is `ErrNoDiffFound`, never fabricated.
+- `internal/fixproposals`: `FixProposal` (spec §6.9/§15.1's full field
+  list) plus a **pure-Go unified diff parser and applier** —
+  `ParseUnifiedDiff`/`ApplyFileChange` — deliberately not shelling out to
+  `git apply`/`patch`, the same reasoning as Compose file parsing since
+  Phase 2 (spec §23.3): a diff body may come from an AI provider, so it
+  must never reach a shell. Every context/removed line is verified
+  against the actual file before anything is written; a mismatch fails
+  the whole file rather than corrupting it. `ApplyToWorkspace` copies the
+  repository into a disposable directory under
+  `SENTINEL_FIX_WORKSPACES_DIR` and applies there — the original is
+  never touched. Both `ApplyToWorkspace` and the later
+  `ApplyToRepository` check every diff file path with
+  `projects.WithinRoot` (the same containment check discovery has used
+  since Phase 1) before any write — a diff's path is attacker-controlled
+  data if it came from an AI provider or a compromised project.
+- Fix generation (`POST /bugs/{id}/fix-proposal`) supports two paths: a
+  manually-supplied `unified_diff` (validated by parsing before
+  storing), or an AI-assisted one routed through Phase 6's task routing
+  (`fix_generation`). **The AI path deliberately never reads repository
+  source** — only a bug report's own already-curated evidence (title,
+  failure type, error message, root cause hypothesis) — since building a
+  safe repository-content pipeline (path allowlist + redaction, atop
+  Phase 6's `internal/redaction`) is real additional scope reserved for
+  later; this is documented as an honest ceiling, the same way Phase 5's
+  test generation documented "smoke-level assertions only" as its
+  ceiling. Either way, a proposal is always created `pending_review` —
+  the AI can never auto-approve its own output (spec §3.3 "It must not
+  apply patches").
+- Approval workflow: `approve`/`reject`/`request-revision` change only a
+  status field. `apply-workspace` is repeatable (review, tweak, re-apply)
+  and never touches the real repository. `apply-repository` is the one
+  path that does — gated on `approval_status == approved` (403
+  otherwise) and on never having run before (409 on a second attempt,
+  checked atomically by the store) — and re-parses the exact stored
+  `unified_diff`, never a regenerated one, so applied files are
+  guaranteed to match the approved diff exactly (spec §15.2 acceptance).
+- Regression test selection (`PATCH /fix-proposals/{id}` with
+  `regression_test_ids`) is data-level only: selected tests are run the
+  normal Phase 5 way, against the environment's live `base_url` — **not**
+  an ephemeral deployment of the patched temporary workspace, since
+  building/deploying an arbitrary target repository from source is out
+  of scope. Documented as a known, honest trade-off in
+  docs/FIX_PROPOSALS.md, the same way Phase 5's "no live SSE log
+  streaming" was.
+- Web: functional Fix Proposals page — diff review via a plain colored
+  (+green/-red) viewer rather than the spec's Monaco Editor (a
+  multi-megabyte dependency judged not worth the integration cost for
+  review-only display at this stage, the same call already made for
+  Phase 3's Application Map graph canvas), risk/explanation/assumptions/
+  side-effects/rollback guidance, approve/reject/request-revision,
+  apply-workspace and apply-repository (with a confirmation prompt)
+  actions, per-file apply results. Bugs page gained a "Generate fix
+  proposal" section (AI button + a manual-diff textarea).
+- `docker-compose.yml` gained a `fix-workspaces-init` one-shot container
+  (same root-owned-named-volume problem as `artifacts-init`) and a
+  `sentinel-fix-workspaces` volume; `./workspace`'s existing `:ro` mount
+  is documented, not changed — `apply-repository` needs it writable, an
+  explicit opt-in rather than a new default.
+
+Acceptance criteria (spec) — verified against the live stack: created a
+manual fix proposal from a real bug and confirmed `apply-workspace`
+patched a throwaway copy of a real fixture repository while the
+original file on disk was provably untouched; approved it and confirmed
+`apply-repository` wrote the exact approved content to the real file,
+then confirmed a second `apply-repository` call was refused (409);
+confirmed `apply-repository` before approval is refused (403) and never
+touches the file; confirmed a path-escaping diff (`../../../etc/passwd`)
+is rejected before any write, for both the workspace and the repository
+path, with dedicated regression tests for each; generated a proposal via
+a fake AI provider and confirmed its `approval_status` is
+`pending_review`, never auto-approved.
+
+## Next: Phase 9 — Production Hardening
+
+Per spec §25 Phase 9: RBAC, OIDC-ready architecture, rate limiting, CSRF
+protection, security headers, audit search, retention jobs, backups
+documentation, OpenTelemetry, metrics, threat model, dependency
+scanning, security tests. This matters more with every phase that's
+landed since Phase 5 — the Docker socket mount, AI provider keys, and
+now unauthenticated repository writes all currently rely on "don't
+expose this beyond a trusted network" as the only real control.

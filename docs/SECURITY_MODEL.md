@@ -6,9 +6,10 @@ and §23 for the full target model; this file states what's true *today*.
 [docs/THREAT_MODEL.md](THREAT_MODEL.md) covers threat areas in more depth
 as each phase introduces the surface they apply to.
 
-## Current state (Phases 0–7)
+## Current state (Phases 0–8)
 
-- **Target-repository access is read-only and path-validated.**
+- **Target-repository access is path-validated, and read-only except for
+  one explicit, approval-gated write path (Phase 8).**
   `internal/projects.ValidateRepositoryPath` resolves the caller-supplied
   path to an absolute, symlink-free path, rejects it if it doesn't exist,
   isn't a directory, or resolves to a system root (`/`, `/etc`, `/private/etc`,
@@ -20,7 +21,8 @@ as each phase introduces the surface they apply to.
   (`package.json`, `go.mod`, `requirements.txt`, etc.), file contents, to
   classify them. Both properties (no traversal, no symlink escape) are
   covered by dedicated tests in `internal/projects` and
-  `internal/discovery`.
+  `internal/discovery`. `POST /fix-proposals/{id}/apply-repository` is
+  the sole exception — see the Phase 8 bullet below.
 - **Route extraction reads source, never executes it.**
   `internal/routes.Extract` reads `.js`/`.ts`/`.go`/`.py` file *contents*
   (regex-matched, not parsed/evaluated) to find router calls, and reuses
@@ -90,15 +92,39 @@ as each phase introduces the surface they apply to.
   response body. The plaintext key is resolved only server-side,
   immediately before an outbound health-check or (in a later phase) AI
   request — never on a path that returns to an HTTP client.
-- **No actual AI call exists yet.** Phase 6 delivers provider
-  configuration, a live "test connection" health check, and task
-  routing only — no phase before 7 sends any content to an AI provider.
-  `internal/redaction` (the pipeline required before that will ever
-  happen, spec §16.5) already exists and is independently tested:
-  secrets, tokens, credentials, `Authorization`/`Cookie` headers are
-  detected and redacted from arbitrary text, with a path allowlist and
-  file-size limit as building blocks for whichever later phase first
-  assembles real AI context.
+- **The first real AI call (Phase 8) sends curated evidence, never raw
+  repository content.** `internal/providers.Completer` is only ever
+  invoked by fix-proposal generation, with a prompt built solely from a
+  bug report's own fields (title, failure type, error message, the
+  already-labeled root cause hypothesis) — no repository file is read
+  and sent. `internal/redaction` (the pipeline spec §16.5 requires
+  before any repository content ever reaches a provider) exists and is
+  independently tested — secrets, tokens, credentials,
+  `Authorization`/`Cookie` headers, a path allowlist, a file-size
+  limit — but is not yet wired to anything, since nothing yet sends
+  repository content anywhere. Wiring it up is a prerequisite for
+  whichever later phase first does.
+- **A fix proposal can only ever write to a target repository once,
+  after an explicit approval, and only the diff that was approved.**
+  `POST /fix-proposals/{id}/apply-repository` returns 403 unless
+  `approval_status == approved`, and 409 if `repository_applied_at` is
+  already set (checked atomically by the store — see
+  `fixproposals.ErrAlreadyAppliedToRepository`). It re-parses the exact
+  `unified_diff` column the approval was granted for, never a
+  regenerated one. Every file path in a diff — attacker-controlled data
+  if the diff came from an AI provider or a compromised project — is
+  checked with `projects.WithinRoot` before any write, for both the
+  disposable temporary workspace (`apply-workspace`) and the real
+  repository; a path like `../../../etc/passwd` is rejected before
+  touching the filesystem, covered by dedicated tests for both write
+  targets. The AI itself is never on this path at all: `Completer`
+  returns text, stored as a `pending_review` proposal — no code path
+  connects a provider response directly to `apply-repository`.
+- **The diff engine parses, never shells out.** `internal/fixproposals`
+  implements unified-diff parsing and application in pure Go rather
+  than invoking `git apply`/`patch` as a subprocess — consistent with
+  Compose file parsing since Phase 2 (spec §23.3) — so a crafted or
+  AI-hallucinated diff body can never reach a shell.
 - **Secrets.** `POSTGRES_PASSWORD` has no default and must be supplied via
   `.env` (gitignored) or the deployment's secret mechanism. It is never
   logged: `internal/logging.SensitiveFieldName`/`Redact` exist so future
@@ -118,15 +144,19 @@ as each phase introduces the surface they apply to.
 
 ## Not yet implemented
 
-Authentication/RBAC, approval workflow enforcement for patches,
-Kubernetes discovery sandboxing, and patch-application safety all land
-in the phases that introduce the corresponding feature (Phases 8, 9 —
-see [docs/ROADMAP.md](ROADMAP.md)). Until Phase 9, do not expose this
+Authentication/RBAC and Kubernetes discovery sandboxing land in the
+phases that introduce them (Phase 9, Phase 10 — see
+[docs/ROADMAP.md](ROADMAP.md)). Until Phase 9, do not expose this
 deployment beyond a trusted local network — this matters more than
-before Phase 5, given the Docker socket is mounted by default, and more
-than before Phase 6 if an AI provider API key is stored (no RBAC yet
-gates who can read `has_api_key`/trigger a health check, even though the
-key itself is never exposed through the API).
+before Phase 5, given the Docker socket is mounted by default; more than
+before Phase 6 if an AI provider API key is stored (no RBAC yet gates
+who can read `has_api_key`/trigger a health check, even though the key
+itself is never exposed through the API); and most of all from Phase 8
+on, since any caller of the API can approve and apply a fix proposal —
+i.e., write to the target repository — with no authentication at all.
+`./workspace` stays mounted read-only by default specifically to keep
+that write path opt-in (see
+[docs/FIX_PROPOSALS.md](FIX_PROPOSALS.md#the-target-repository-must-be-writable)).
 
 ## Reporting a vulnerability
 

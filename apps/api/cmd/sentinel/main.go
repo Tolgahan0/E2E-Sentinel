@@ -21,6 +21,7 @@ import (
 	"e2e-sentinel/apps/api/internal/dockerclient"
 	"e2e-sentinel/apps/api/internal/environments"
 	"e2e-sentinel/apps/api/internal/failures"
+	"e2e-sentinel/apps/api/internal/fixproposals"
 	"e2e-sentinel/apps/api/internal/graph"
 	"e2e-sentinel/apps/api/internal/httpserver"
 	"e2e-sentinel/apps/api/internal/logging"
@@ -104,6 +105,10 @@ func run(migrateOnly bool) error {
 		logger.Error().Err(err).Msg("creating artifacts directory failed")
 		return err
 	}
+	if err := os.MkdirAll(cfg.FixWorkspacesDir, 0o755); err != nil {
+		logger.Error().Err(err).Msg("creating fix workspaces directory failed")
+		return err
+	}
 
 	// Test execution (Phase 5) is optional: nil until
 	// SENTINEL_RUNNER_HOST_WORKSPACE_DIR is configured, since it requires
@@ -149,26 +154,29 @@ func run(migrateOnly bool) error {
 	}
 
 	router := httpserver.NewRouter(httpserver.Dependencies{
-		Postgres:       httpserver.PostgresPinger{Pool: pgPool},
-		Redis:          httpserver.RedisPinger{Client: redisClient},
-		Audit:          recorder,
-		Projects:       projects.NewPostgresStore(pgPool),
-		Environments:   environments.NewPostgresStore(pgPool),
-		Discovery:      discovery.NewPostgresStore(pgPool),
-		Services:       services.NewPostgresStore(pgPool),
-		Graph:          graph.NewPostgresStore(pgPool),
-		Planning:       planning.NewPostgresStore(pgPool),
-		Runs:           runs.NewPostgresStore(pgPool),
-		Artifacts:      artifacts.NewFileStore(pgPool, cfg.ArtifactsDir),
-		Providers:      providers.NewPostgresStore(pgPool),
-		Settings:       settings.NewPostgresStore(pgPool),
-		Failures:       failures.NewPostgresStore(pgPool),
-		Bugs:           bugreports.NewPostgresStore(pgPool),
-		ProviderHealth: providers.NewHealthChecker(nil),
-		Docker:         dockerClient,
-		Runner:         runner,
-		Secrets:        secretStore,
-		Logger:         logger,
+		Postgres:         httpserver.PostgresPinger{Pool: pgPool},
+		Redis:            httpserver.RedisPinger{Client: redisClient},
+		Audit:            recorder,
+		Projects:         projects.NewPostgresStore(pgPool),
+		Environments:     environments.NewPostgresStore(pgPool),
+		Discovery:        discovery.NewPostgresStore(pgPool),
+		Services:         services.NewPostgresStore(pgPool),
+		Graph:            graph.NewPostgresStore(pgPool),
+		Planning:         planning.NewPostgresStore(pgPool),
+		Runs:             runs.NewPostgresStore(pgPool),
+		Artifacts:        artifacts.NewFileStore(pgPool, cfg.ArtifactsDir),
+		Providers:        providers.NewPostgresStore(pgPool),
+		Settings:         settings.NewPostgresStore(pgPool),
+		Failures:         failures.NewPostgresStore(pgPool),
+		Bugs:             bugreports.NewPostgresStore(pgPool),
+		FixProposals:     fixproposals.NewPostgresStore(pgPool),
+		ProviderHealth:   providers.NewHealthChecker(nil),
+		Completer:        providers.NewCompleter(nil),
+		FixWorkspacesDir: cfg.FixWorkspacesDir,
+		Docker:           dockerClient,
+		Runner:           runner,
+		Secrets:          secretStore,
+		Logger:           logger,
 	})
 
 	server := &http.Server{

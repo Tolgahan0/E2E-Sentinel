@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"e2e-sentinel/apps/api/internal/artifacts"
@@ -14,6 +16,7 @@ import (
 	"e2e-sentinel/apps/api/internal/discovery"
 	"e2e-sentinel/apps/api/internal/environments"
 	"e2e-sentinel/apps/api/internal/failures"
+	"e2e-sentinel/apps/api/internal/fixproposals"
 	"e2e-sentinel/apps/api/internal/graph"
 	"e2e-sentinel/apps/api/internal/planning"
 	"e2e-sentinel/apps/api/internal/projects"
@@ -29,26 +32,40 @@ func (f fakePinger) Ping(ctx context.Context) error { return f.err }
 
 func newTestDeps(pgErr, redisErr error) Dependencies {
 	return Dependencies{
-		Postgres:       fakePinger{err: pgErr},
-		Redis:          fakePinger{err: redisErr},
-		Audit:          audit.NewMemoryRecorder(),
-		Projects:       projects.NewMemoryStore(),
-		Environments:   environments.NewMemoryStore(),
-		Discovery:      discovery.NewMemoryStore(),
-		Services:       services.NewMemoryStore(),
-		Graph:          graph.NewMemoryStore(),
-		Planning:       planning.NewMemoryStore(),
-		Runs:           runs.NewMemoryStore(),
-		Artifacts:      artifacts.NewMemoryStore(),
-		Providers:      providers.NewMemoryStore(),
-		Settings:       settings.NewMemoryStore(),
-		Failures:       failures.NewMemoryStore(),
-		Bugs:           bugreports.NewMemoryStore(),
-		ProviderHealth: providers.NewHealthChecker(nil),
-		Docker:         nil, // no Docker daemon in unit tests; must degrade gracefully
-		Runner:         nil, // no runner configured by default; see fakeRunner in runs_handlers_test.go
-		Secrets:        nil, // no encryption key configured by default; see providers_handlers_test.go
+		Postgres:         fakePinger{err: pgErr},
+		Redis:            fakePinger{err: redisErr},
+		Audit:            audit.NewMemoryRecorder(),
+		Projects:         projects.NewMemoryStore(),
+		Environments:     environments.NewMemoryStore(),
+		Discovery:        discovery.NewMemoryStore(),
+		Services:         services.NewMemoryStore(),
+		Graph:            graph.NewMemoryStore(),
+		Planning:         planning.NewMemoryStore(),
+		Runs:             runs.NewMemoryStore(),
+		Artifacts:        artifacts.NewMemoryStore(),
+		Providers:        providers.NewMemoryStore(),
+		Settings:         settings.NewMemoryStore(),
+		Failures:         failures.NewMemoryStore(),
+		Bugs:             bugreports.NewMemoryStore(),
+		FixProposals:     fixproposals.NewMemoryStore(),
+		ProviderHealth:   providers.NewHealthChecker(nil),
+		Completer:        providers.NewCompleter(nil),
+		FixWorkspacesDir: testFixWorkspacesDir(),
+		Docker:           nil, // no Docker daemon in unit tests; must degrade gracefully
+		Runner:           nil, // no runner configured by default; see fakeRunner in runs_handlers_test.go
+		Secrets:          nil, // no encryption key configured by default; see providers_handlers_test.go
 	}
+}
+
+// testFixWorkspacesDir returns a process-wide scratch directory for fix
+// proposal workspace tests. Using a fixed path (rather than t.TempDir(),
+// which newTestDeps' signature has no *testing.T to call) is fine here:
+// ApplyToWorkspace always creates its own uniquely-named subdirectory
+// under it via os.MkdirTemp.
+func testFixWorkspacesDir() string {
+	dir := filepath.Join(os.TempDir(), "e2e-sentinel-test-fix-workspaces")
+	_ = os.MkdirAll(dir, 0o755)
+	return dir
 }
 
 func TestHandleHealth_AlwaysOK(t *testing.T) {
