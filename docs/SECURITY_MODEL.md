@@ -6,7 +6,7 @@ and §23 for the full target model; this file states what's true *today*.
 [docs/THREAT_MODEL.md](THREAT_MODEL.md) covers threat areas in more depth
 as each phase introduces the surface they apply to.
 
-## Current state (Phases 0–8)
+## Current state (Phases 0–9)
 
 - **Target-repository access is path-validated, and read-only except for
   one explicit, approval-gated write path (Phase 8).**
@@ -135,28 +135,98 @@ as each phase introduces the surface they apply to.
 - **Non-root containers.** `sentinel-api` runs as `nonroot` in a
   distroless image (no shell, no package manager). `sentinel-web` runs as
   a dedicated non-root `sentinel` user.
-- **Append-only audit log.** `audit_events` has no UPDATE/DELETE code path
-  in `internal/audit`; the HTTP API only exposes a read (`GET
-  /api/v1/audit-events`).
+- **Append-only audit log, now searchable.** `audit_events` has no
+  UPDATE/DELETE code path in `internal/audit` — `Recorder` only exposes
+  `Record`, `Recent`, and (Phase 9) `Search`; the HTTP API only exposes a
+  read (`GET /api/v1/audit-events`, with `action_type`/`resource_type`/
+  `resource_id`/`actor`/`since`/`until`/`limit` filters). Verified by a
+  dedicated test that PATCH/PUT/DELETE/POST to `/audit-events` all 404
+  or 405 — there is no route, at any verb, that could modify a recorded
+  event.
+- **RBAC is real but opt-in.** `internal/auth` implements spec §19's five
+  roles with a fixed, in-code permission mapping, bcrypt password
+  hashing, and opaque bearer session tokens (only a SHA-256 hash is ever
+  stored — the same never-store-the-raw-secret pattern as provider API
+  keys). `SENTINEL_AUTH_ENABLED` defaults to **false**: every route
+  behaves exactly as in Phases 0–8 unless explicitly turned on, the same
+  "safe default, explicit capability" pattern as the Docker socket mount
+  and secret encryption. With it enabled: `POST /auth/login` returns the
+  same generic `invalid_credentials` error whether the email doesn't
+  exist or the password is wrong (never reveals which); every mutating
+  route spec §19's example permission table calls out (approve a test,
+  run a test, generate a fix proposal, apply a workspace, approve/apply a
+  repository patch, configure a provider/environment) is gated with
+  `requirePermission`, verified by dedicated tests asserting a Viewer
+  gets 403 where an Approver/Developer/Administrator gets through.
+  Beyond the bootstrap administrator (`auth.EnsureBootstrapAdmin`,
+  created once on first startup if no user exists and
+  `SENTINEL_ADMIN_EMAIL`/`SENTINEL_ADMIN_PASSWORD` are set), an
+  Administrator can create further accounts via `POST /api/v1/users`
+  and list them via `GET /api/v1/users` (both gated by the new
+  `manage_users` permission, Administrator-only) — verified live
+  end-to-end: a freshly created Viewer account can log in, read, and is
+  rejected with 403 on both a permission-gated route and on
+  `POST /users` itself.
+- **Security headers, rate limiting, and CSRF defense (Phase 9).** Every
+  response gets `X-Frame-Options: DENY`, a `default-src 'none'` CSP,
+  `Referrer-Policy: no-referrer`, and `Strict-Transport-Security`
+  (alongside the existing `X-Content-Type-Options: nosniff`) — this is a
+  JSON/binary API, never HTML, so a strict policy costs nothing
+  functionally. A per-client-IP token bucket (`internal/httpserver`
+  `rateLimit`, generous defaults so normal use is never affected) returns
+  429 on abuse. CSRF defense (`csrfProtection`) requires a custom
+  `X-Sentinel-Csrf` header on mutating requests once auth is enabled —
+  this API's bearer-token authentication is already structurally immune
+  to classic (cookie-riding) CSRF, since a cross-site request can't
+  attach a custom `Authorization` header without CORS permission this
+  server doesn't grant; the header check is defense-in-depth for a
+  direct-API-access deployment, documented as such rather than
+  overclaimed as solving a live exploit path.
+- **Retention (Phase 9).** `artifacts.RunRetentionLoop` periodically
+  deletes artifacts past their `retention_until` (file, then metadata
+  row) — a simple ticker-based sweep, not spec §21's full idempotency-
+  key/retry/dead-letter job system, which is separately reserved,
+  larger infrastructure.
+- **Metrics (Phase 9).** `GET /metrics` (unauthenticated, like `/health`/
+  `/ready` — a scrape target, firewall it the same way) exposes a
+  hand-rolled Prometheus-format subset: HTTP requests by method/status,
+  test runs by status, active test runs, AI requests by provider
+  type/outcome. Full OpenTelemetry distributed tracing is not
+  implemented — a documented ceiling, not a partial/broken attempt.
+- **Dependency scanning (Phase 9).** `make scan` runs `govulncheck`
+  (Go) and `npm audit --audit-level=high` (web); `.github/workflows/
+  dependency-scan.yml` runs both on push/PR/weekly. Run at the time this
+  phase shipped: `govulncheck` found several Go **standard-library**
+  vulnerabilities tied to the local toolchain version (Go 1.25.5), fixed
+  in later 1.25.x patch releases — an environment/toolchain update, not
+  an application code fix. `npm audit` found high-severity issues in
+  `postcss`/`sharp`, transitive dependencies of the pinned Next.js
+  version; `npm audit fix --force` resolves them but downgrades Next.js
+  as a breaking change, deliberately not applied unilaterally here. Both
+  are genuine, current findings — recorded so a future pass knows what
+  was already investigated versus newly introduced.
 - **Least-exposure networking.** Only `sentinel-web` (`9090`) is intended
   for end users. `sentinel-api` (`8080`), `postgres` (`5432`), and `redis`
   (`6379`) are bound to `127.0.0.1` in `docker-compose.yml`, not `0.0.0.0`.
 
 ## Not yet implemented
 
-Authentication/RBAC and Kubernetes discovery sandboxing land in the
-phases that introduce them (Phase 9, Phase 10 — see
-[docs/ROADMAP.md](ROADMAP.md)). Until Phase 9, do not expose this
-deployment beyond a trusted local network — this matters more than
-before Phase 5, given the Docker socket is mounted by default; more than
-before Phase 6 if an AI provider API key is stored (no RBAC yet gates
-who can read `has_api_key`/trigger a health check, even though the key
-itself is never exposed through the API); and most of all from Phase 8
-on, since any caller of the API can approve and apply a fix proposal —
-i.e., write to the target repository — with no authentication at all.
-`./workspace` stays mounted read-only by default specifically to keep
-that write path opt-in (see
-[docs/FIX_PROPOSALS.md](FIX_PROPOSALS.md#the-target-repository-must-be-writable)).
+Kubernetes discovery sandboxing lands in Phase 10 (see
+[docs/ROADMAP.md](ROADMAP.md)). OIDC/SAML and dynamic per-role permission
+editing are not implemented — RBAC's architecture is ready for them
+(`auth.Store` is a plain interface), but only local email/password auth
+with a fixed permission mapping exists. Until `SENTINEL_AUTH_ENABLED=true`
+is actually turned on, do not expose this deployment beyond a trusted
+local network — this matters more than before Phase 5, given the Docker
+socket is mounted by default; more than before Phase 6 if an AI provider
+API key is stored (RBAC now *can* gate who reads `has_api_key`/triggers a
+health check, but only once enabled); and most of all from Phase 8 on,
+since with auth disabled, any caller of the API can approve and apply a
+fix proposal — i.e., write to the target repository — with no
+authentication at all. `./workspace` stays mounted read-only by default
+specifically to keep that write path opt-in (see
+[docs/FIX_PROPOSALS.md](FIX_PROPOSALS.md#the-target-repository-must-be-writable)),
+independent of whether RBAC is also turned on.
 
 ## Reporting a vulnerability
 

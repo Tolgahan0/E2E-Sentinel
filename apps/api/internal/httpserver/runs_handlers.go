@@ -146,6 +146,7 @@ func executeRunAsync(deps Dependencies, runID string, input runs.RunInput) {
 	if _, err := deps.Runs.UpdateStatus(ctx, runID, runs.StatusRunning, nil, "", false); err != nil {
 		logger.Error().Err(err).Str("run_id", runID).Msg("marking run running failed")
 	}
+	deps.Metrics.ActiveTestRuns.Inc(nil)
 
 	result, err := deps.Runner.Execute(ctx, input)
 	if err != nil {
@@ -169,6 +170,8 @@ func executeRunAsync(deps Dependencies, runID string, input runs.RunInput) {
 			recordFailureAndBug(ctx, deps, run, &runs.RunResult{ExitCode: -1, Stderr: err.Error()}, nil)
 		}
 		_, _ = deps.Runs.UpdateStatus(ctx, runID, runs.StatusError, nil, err.Error(), true)
+		deps.Metrics.ActiveTestRuns.Dec(nil)
+		deps.Metrics.TestRunsTotal.Inc(map[string]string{"status": runs.StatusError})
 		return
 	}
 
@@ -179,6 +182,8 @@ func executeRunAsync(deps Dependencies, runID string, input runs.RunInput) {
 	if err == nil && current.Status == runs.StatusCancelled {
 		saveRunArtifacts(ctx, deps, runID, result)
 		_ = deps.Runner.Cleanup(ctx, runID)
+		deps.Metrics.ActiveTestRuns.Dec(nil)
+		deps.Metrics.TestRunsTotal.Inc(map[string]string{"status": runs.StatusCancelled})
 		return
 	}
 
@@ -219,6 +224,8 @@ func executeRunAsync(deps Dependencies, runID string, input runs.RunInput) {
 	if _, err := deps.Runs.UpdateStatus(ctx, runID, status, &exitCode, summary, true); err != nil {
 		logger.Error().Err(err).Str("run_id", runID).Msg("recording final run status failed")
 	}
+	deps.Metrics.ActiveTestRuns.Dec(nil)
+	deps.Metrics.TestRunsTotal.Inc(map[string]string{"status": status})
 
 	if err := deps.Audit.Record(ctx, audit.Event{
 		ActionType: "test_run.completed", ResourceType: "test_run", ResourceID: runID,

@@ -308,6 +308,63 @@ export interface FixProposalApplyResult {
   all_applied: boolean;
 }
 
+// Phase 9 RBAC (opt-in — see GET /auth/status). The bearer token is
+// stored client-side only in this tab's memory-backed storage
+// (sessionStorage, not localStorage: it should not silently persist
+// across a shared machine's browser restarts) and attached to every
+// same-origin API call below when present. When auth is disabled
+// (the default), no token ever exists and every call behaves exactly
+// as in Phases 0-8.
+const TOKEN_STORAGE_KEY = 'sentinel_auth_token';
+
+export function getStoredToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return window.sessionStorage.getItem(TOKEN_STORAGE_KEY);
+}
+
+export function setStoredToken(token: string): void {
+  if (typeof window === 'undefined') return;
+  window.sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
+}
+
+export function clearStoredToken(): void {
+  if (typeof window === 'undefined') return;
+  window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+}
+
+export interface AuthStatusResponse {
+  auth_enabled: boolean;
+}
+
+export interface CurrentUser {
+  id: string;
+  email: string;
+  role: string;
+}
+
+export interface LoginResponse {
+  token: string;
+  expires_at: string;
+  user: CurrentUser;
+}
+
+export const ROLES: { value: string; label: string }[] = [
+  { value: 'viewer', label: 'Viewer' },
+  { value: 'tester', label: 'Tester' },
+  { value: 'developer', label: 'Developer' },
+  { value: 'approver', label: 'Approver' },
+  { value: 'administrator', label: 'Administrator' },
+];
+
+export interface UsersResponse {
+  users: CurrentUser[] | null;
+}
+
+function authHeaders(): Record<string, string> {
+  const token = getStoredToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 /**
  * fetchJSON calls a same-origin /api/* route (a server-side Route Handler
  * that proxies to sentinel-api, reading SENTINEL_API_URL at request time)
@@ -317,7 +374,7 @@ export interface FixProposalApplyResult {
  */
 export async function fetchJSON<T>(path: string): Promise<T | null> {
   try {
-    const res = await fetch(path, { cache: 'no-store' });
+    const res = await fetch(path, { cache: 'no-store', headers: authHeaders() });
     if (!res.ok) {
       return null;
     }
@@ -347,7 +404,7 @@ export async function mutateJSON<T>(
   try {
     const res = await fetch(path, {
       method,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
     const data = (await res.json().catch(() => null)) as (T & { error?: string }) | null;

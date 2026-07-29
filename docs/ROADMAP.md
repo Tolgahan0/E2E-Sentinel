@@ -15,7 +15,7 @@ previous one's acceptance criteria are demonstrated (spec §33).
 | 6 | AI Providers | **Done** |
 | 7 | Failure Analysis & Bug Reports | **Done** |
 | 8 | Fix Proposals | **Done** |
-| 9 | Production Hardening | Not started |
+| 9 | Production Hardening | **Done** |
 | 10 | Kubernetes Discovery | Not started |
 | 11 | Advanced Test Adapters (WebSocket, Maestro, Detox, k6, ZAP, Nuclei, Schemathesis, Pact, Kafka) | Not started |
 
@@ -421,12 +421,96 @@ path, with dedicated regression tests for each; generated a proposal via
 a fake AI provider and confirmed its `approval_status` is
 `pending_review`, never auto-approved.
 
-## Next: Phase 9 — Production Hardening
+## Phase 9 — Production Hardening (done)
 
-Per spec §25 Phase 9: RBAC, OIDC-ready architecture, rate limiting, CSRF
-protection, security headers, audit search, retention jobs, backups
-documentation, OpenTelemetry, metrics, threat model, dependency
-scanning, security tests. This matters more with every phase that's
-landed since Phase 5 — the Docker socket mount, AI provider keys, and
-now unauthenticated repository writes all currently rely on "don't
-expose this beyond a trusted network" as the only real control.
+- **RBAC** (`internal/auth`): spec §19's five roles (Viewer/Tester/
+  Developer/Approver/Administrator) with a fixed, in-code
+  role→permission mapping, bcrypt-hashed passwords, and opaque bearer
+  session tokens (only a SHA-256 hash of the token is ever stored — same
+  never-persist-the-raw-secret principle as Phase 6's provider keys).
+  **Opt-in**: `SENTINEL_AUTH_ENABLED` defaults to `false`, so every route
+  behaves exactly as in Phases 0–8 unless explicitly turned on — the
+  same "safe default, explicit capability" pattern used for the Docker
+  socket mount and secret encryption, chosen specifically so retrofitting
+  auth onto ~40 existing routes couldn't destabilize the ~500 existing
+  tests across every prior phase. `EnsureBootstrapAdmin` creates the
+  first administrator from `SENTINEL_ADMIN_EMAIL`/`_PASSWORD` on first
+  startup with auth enabled, and is a no-op forever after (spec §19 "MVP
+  local mode may support a bootstrap administrator"). Beyond that
+  bootstrap account, `POST/GET /api/v1/users` (Administrator-only, gated
+  by a new `manage_users` permission) create and list further accounts —
+  otherwise RBAC would only ever have exactly one usable account.
+  Verified live: an Administrator creates a Viewer account through this
+  endpoint, the Viewer logs in and is correctly 403'd both on a
+  permission-gated route and on `POST /users` itself.
+- **OIDC-ready architecture**: `auth.Store` is a plain interface; only
+  local email/password is implemented today, but nothing about the
+  session/permission model assumes it.
+- **Rate limiting**: a per-client-IP token bucket
+  (`golang.org/x/time/rate`), generous defaults (20 req/s, burst 60) so
+  normal browser use is never affected, 429 on abuse. Constructed fresh
+  per router instance, never a package-level global, so unrelated
+  processes (and every test) never share limiter state.
+- **CSRF protection**: a custom `X-Sentinel-Csrf` header required on
+  mutating requests once auth is enabled. Documented honestly: this
+  API's bearer-token auth (never cookies) is already structurally immune
+  to classic CSRF — a cross-site request can't attach a custom
+  `Authorization` header without CORS permission this server doesn't
+  grant — so this is defense-in-depth for a direct-API-access
+  deployment, not a fix for a currently-exploitable gap.
+- **Security headers**: `X-Frame-Options: DENY`, a `default-src 'none'`
+  CSP, `Referrer-Policy: no-referrer`, `Strict-Transport-Security` on
+  every response, alongside the existing `X-Content-Type-Options:
+  nosniff`.
+- **Audit search**: `GET /audit-events` gained `action_type`/
+  `resource_type`/`resource_id`/`actor`/`since`/`until`/`limit` query
+  filters (`audit.Recorder.Search`), backed by both memory and Postgres
+  implementations. Immutability verified by a dedicated test: PATCH/PUT/
+  DELETE/POST to `/audit-events` all 404 or 405 — there is no route, at
+  any verb, that could modify a recorded event.
+- **Retention jobs**: `artifacts.RunRetentionLoop`, a ticker-based sweep
+  (default hourly) that deletes artifacts past their `retention_until` —
+  not spec §21's full idempotency-key/retry/dead-letter job system,
+  which is separately reserved, larger infrastructure.
+- **Metrics**: a hand-rolled Prometheus text-exposition registry
+  (`internal/metrics`, no new heavy dependency) at `GET /metrics` —
+  HTTP requests by method/status, test runs by status, active test runs,
+  AI requests by provider type/outcome. Full OpenTelemetry distributed
+  tracing is a documented ceiling, not attempted — wiring span
+  propagation through every internal package is a materially larger
+  effort than this phase's remaining scope.
+- **Threat model** (docs/THREAT_MODEL.md): every spec §23.1 threat area
+  mapped to its actual mitigation and the phase that introduced it, as a
+  table instead of a narrative — easy to audit at a glance.
+- **Dependency scanning**: `make scan` (`govulncheck` + `npm audit
+  --audit-level=high`) plus `.github/workflows/dependency-scan.yml`
+  (push/PR/weekly). Run for real at the time this phase shipped —
+  findings (Go-toolchain-version-tied stdlib CVEs, transitive
+  `postcss`/`sharp` issues via Next.js) are recorded in
+  docs/SECURITY_MODEL.md rather than hidden, along with why they weren't
+  blindly auto-fixed (a `next` downgrade is a breaking change not
+  undertaken unilaterally here).
+- **Security tests**: RBAC authorization tests (a Viewer 403s on
+  approving a test, an Approver doesn't; a Developer can generate tests
+  but not approve fix proposals), the audit-immutability test above, and
+  the Phase 8 path-traversal tests (already existing) together are this
+  phase's concrete "security checklist"/"authorization tests pass"
+  acceptance evidence — see docs/SECURITY_MODEL.md for the full list
+  rather than duplicating it here.
+
+Acceptance criteria (spec) — verified: RBAC enforcement tested end-to-end
+(login, wrong-password/unknown-email both return the same generic error,
+missing/invalid token both 401, a Viewer 403s on a mutating route an
+Approver reaches); confirmed `SENTINEL_AUTH_ENABLED` unset reproduces
+Phase 0–8 behavior exactly (every existing test suite passes unmodified);
+confirmed no audit-event mutation route exists at any HTTP verb; secret
+handling re-verified (provider keys, session tokens, passwords all
+stored only as a hash/ciphertext, never raw); Phase 5's runner isolation
+tests (already existing, unchanged) still pass.
+
+## Next: Phase 10 — Kubernetes Discovery
+
+Per spec §25 Phase 10 (deliver only after the Docker MVP is stable, which
+it now is): Kubernetes connection, namespace scoping, workload discovery,
+pod health, events, read-only logs, ingress/service mapping, Helm
+deployment.

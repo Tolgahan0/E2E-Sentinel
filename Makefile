@@ -1,4 +1,4 @@
-.PHONY: dev test lint build up down migrate
+.PHONY: dev test lint build up down migrate scan
 
 # Runs the API and web app locally (not in Docker), for fast iteration.
 # Requires `make up` (or an equivalent local Postgres/Redis) running first.
@@ -33,3 +33,11 @@ migrate:
 		SENTINEL_REDIS_ADDR=$${SENTINEL_REDIS_ADDR:-localhost:6379} \
 		SENTINEL_MIGRATIONS_DIR=$${SENTINEL_MIGRATIONS_DIR:-../../migrations} \
 		go run ./cmd/sentinel -migrate-only
+
+# Dependency scanning (spec §9 Production Hardening). govulncheck checks
+# Go module dependencies (and the standard library) against the Go
+# vulnerability database; npm audit does the same for the web app's
+# dependencies. Also run in CI — see .github/workflows/dependency-scan.yml.
+scan:
+	cd apps/api && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+	cd apps/web && npm audit --audit-level=high

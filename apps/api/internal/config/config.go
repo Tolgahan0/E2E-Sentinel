@@ -96,6 +96,18 @@ type Config struct {
 	// temporary workspace") — never the original repository_path, which
 	// stays read-only until POST /fix-proposals/{id}/apply-repository.
 	FixWorkspacesDir string
+
+	// AuthEnabled turns on RBAC (spec §19). Defaults to false — every
+	// route behaves exactly as in Phases 0-8 unless explicitly opted
+	// in, the same pattern as the Docker socket mount and secret
+	// encryption.
+	AuthEnabled bool
+	// AdminEmail and AdminPassword bootstrap the first administrator
+	// account (spec §19 "MVP local mode may support a bootstrap
+	// administrator") on first startup with AuthEnabled — only used
+	// once, when no users exist yet.
+	AdminEmail    string
+	AdminPassword string
 }
 
 // Load reads configuration from environment variables and validates it.
@@ -124,6 +136,16 @@ func Load(getenv func(string) string) (Config, error) {
 		SecretEncryptionKey:         strings.TrimSpace(getenv("SENTINEL_SECRET_ENCRYPTION_KEY")),
 		OllamaAutoDetectURL:         firstNonEmpty(getenv("SENTINEL_OLLAMA_AUTODETECT_URL"), "http://host.docker.internal:11434"),
 		FixWorkspacesDir:            firstNonEmpty(getenv("SENTINEL_FIX_WORKSPACES_DIR"), "/data/fix-workspaces"),
+		AdminEmail:                  strings.TrimSpace(getenv("SENTINEL_ADMIN_EMAIL")),
+		AdminPassword:               getenv("SENTINEL_ADMIN_PASSWORD"),
+	}
+
+	if raw := getenv("SENTINEL_AUTH_ENABLED"); raw != "" {
+		enabled, err := strconv.ParseBool(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("config: invalid SENTINEL_AUTH_ENABLED: %w", err)
+		}
+		cfg.AuthEnabled = enabled
 	}
 
 	if raw := getenv("SENTINEL_SHUTDOWN_TIMEOUT_SECONDS"); raw != "" {

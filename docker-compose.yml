@@ -91,6 +91,12 @@ services:
       # a keyless local Ollama provider) still works — spec §16.6
       # "No-AI Mode". Generate with `openssl rand -base64 32`.
       SENTINEL_SECRET_ENCRYPTION_KEY: ${SENTINEL_SECRET_ENCRYPTION_KEY:-}
+      # Phase 9 RBAC: optional, defaults to disabled — every route
+      # behaves exactly as in Phases 0-8 unless explicitly turned on. See
+      # docs/SECURITY_MODEL.md.
+      SENTINEL_AUTH_ENABLED: ${SENTINEL_AUTH_ENABLED:-false}
+      SENTINEL_ADMIN_EMAIL: ${SENTINEL_ADMIN_EMAIL:-}
+      SENTINEL_ADMIN_PASSWORD: ${SENTINEL_ADMIN_PASSWORD:-}
     volumes:
       - ./migrations:/app/migrations:ro
       # Target repositories to discover/test must be reachable inside this

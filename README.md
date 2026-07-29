@@ -14,7 +14,7 @@ without explicit approval.
 
 This repository is being built incrementally against
 [`E2E_SENTINEL_CODEX_MASTER_SPEC.md`](E2E_SENTINEL_CODEX_MASTER_SPEC.md).
-**Phases 0–8** are implemented; see [docs/ROADMAP.md](docs/ROADMAP.md)
+**Phases 0–9** are implemented; see [docs/ROADMAP.md](docs/ROADMAP.md)
 for what comes next and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) /
 [ADR 0001](docs/adr/0001-phase0-foundation.md) for the reasoning behind
 the foundational choices.
@@ -89,6 +89,14 @@ the foundational choices.
   and can run at most once per proposal. A path-traversal check runs
   before every write, for both the temporary workspace and the real
   repository.
+- **Production hardening**: opt-in RBAC (`SENTINEL_AUTH_ENABLED`, off by
+  default) with five roles, bcrypt/bearer-token auth, and a fixed
+  permission mapping gating the mutating routes spec §19 calls out;
+  security headers, per-IP rate limiting, and a CSRF header check on
+  every response/mutating request; searchable, still-immutable audit
+  events; a retention sweep for expired artifacts; a `/metrics`
+  endpoint; a threat-model table; and `make scan` (govulncheck + npm
+  audit, also in CI) for dependency scanning.
 - A Next.js panel (`apps/web`) on port `9090`: Dashboard, Audit Logs,
   Projects, Discovery (findings + services), Application Map, Test
   Inventory, Runs, AI Providers, Bugs, and Fix Proposals are functional;

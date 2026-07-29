@@ -22,9 +22,10 @@ const (
 
 // Retention windows (spec §12): default 14 days, failed runs 30 days,
 // passed runs 7 days. Applied at save time based on the run outcome;
-// actual periodic deletion is a job-system feature (spec §21) not yet
-// implemented — RetentionUntil is recorded now so that job has
-// everything it needs later.
+// periodic deletion is RunRetentionLoop (spec §9 "Retention jobs") — a
+// simple ticker-based sweep, not the full idempotency-key/retry/
+// dead-letter job system spec §21 describes, which is a much larger,
+// separately-reserved piece of infrastructure.
 const (
 	RetentionDefault = 14 * 24 * time.Hour
 	RetentionFailed  = 30 * 24 * time.Hour
@@ -61,4 +62,7 @@ type Store interface {
 	Save(ctx context.Context, testRunID, kind, mimeType string, data []byte, retentionUntil time.Time) (Artifact, error)
 	ListByRun(ctx context.Context, testRunID string) ([]Artifact, error)
 	Read(ctx context.Context, artifactID string) ([]byte, Artifact, error)
+	// DeleteExpired removes every artifact (bytes and metadata) whose
+	// RetentionUntil has passed, and returns how many were removed.
+	DeleteExpired(ctx context.Context, now time.Time) (int, error)
 }

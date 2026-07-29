@@ -60,3 +60,28 @@ func (s *MemoryStore) Read(_ context.Context, artifactID string) ([]byte, Artifa
 	}
 	return s.data[artifactID], a, nil
 }
+
+func (s *MemoryStore) DeleteExpired(_ context.Context, now time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var expiredIDs []string
+	for id, a := range s.byID {
+		if a.RetentionUntil != nil && a.RetentionUntil.Before(now) {
+			expiredIDs = append(expiredIDs, id)
+		}
+	}
+	for _, id := range expiredIDs {
+		testRunID := s.byID[id].TestRunID
+		delete(s.byID, id)
+		delete(s.data, id)
+		remaining := s.byRun[testRunID][:0]
+		for _, existingID := range s.byRun[testRunID] {
+			if existingID != id {
+				remaining = append(remaining, existingID)
+			}
+		}
+		s.byRun[testRunID] = remaining
+	}
+	return len(expiredIDs), nil
+}

@@ -12,12 +12,14 @@ import (
 
 	"e2e-sentinel/apps/api/internal/artifacts"
 	"e2e-sentinel/apps/api/internal/audit"
+	"e2e-sentinel/apps/api/internal/auth"
 	"e2e-sentinel/apps/api/internal/bugreports"
 	"e2e-sentinel/apps/api/internal/discovery"
 	"e2e-sentinel/apps/api/internal/environments"
 	"e2e-sentinel/apps/api/internal/failures"
 	"e2e-sentinel/apps/api/internal/fixproposals"
 	"e2e-sentinel/apps/api/internal/graph"
+	"e2e-sentinel/apps/api/internal/metrics"
 	"e2e-sentinel/apps/api/internal/planning"
 	"e2e-sentinel/apps/api/internal/projects"
 	"e2e-sentinel/apps/api/internal/providers"
@@ -54,6 +56,9 @@ func newTestDeps(pgErr, redisErr error) Dependencies {
 		Docker:           nil, // no Docker daemon in unit tests; must degrade gracefully
 		Runner:           nil, // no runner configured by default; see fakeRunner in runs_handlers_test.go
 		Secrets:          nil, // no encryption key configured by default; see providers_handlers_test.go
+		Auth:             auth.NewMemoryStore(),
+		AuthEnabled:      false, // opt-in; see auth_handlers_test.go for AuthEnabled: true coverage
+		Metrics:          metrics.NewAppMetrics(metrics.NewRegistry()),
 	}
 }
 
@@ -157,5 +162,46 @@ func TestHandleListAuditEvents_ReturnsRecordedEvents(t *testing.T) {
 	}
 	if body.Events[0].ActionType != "project.added" {
 		t.Errorf("ActionType = %q, want project.added", body.Events[0].ActionType)
+	}
+}
+
+func TestHandleListAuditEvents_SearchFiltersByActionType(t *testing.T) {
+	deps := newTestDeps(nil, nil)
+	deps.Audit.Record(context.Background(), audit.Event{ActionType: "project.added", ResourceType: "project", Actor: "admin"})
+	deps.Audit.Record(context.Background(), audit.Event{ActionType: "test.approved", ResourceType: "test_case", Actor: "admin"})
+
+	router := NewRouter(deps)
+	rec := doJSON(t, router, http.MethodGet, "/api/v1/audit-events?action_type=test.approved", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var body struct {
+		Events []audit.Event `json:"events"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &body)
+	if len(body.Events) != 1 || body.Events[0].ActionType != "test.approved" {
+		t.Fatalf("Events = %+v, want exactly the test.approved event", body.Events)
+	}
+}
+
+func TestHandleListAuditEvents_RejectsInvalidSinceFormat(t *testing.T) {
+	router := NewRouter(newTestDeps(nil, nil))
+	rec := doJSON(t, router, http.MethodGet, "/api/v1/audit-events?since=not-a-date", nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+// TestAuditEvents_NoMutatingRouteExists is the spec §9 acceptance
+// criterion "Audit events are immutable through public API" made
+// concrete: there is no PATCH/PUT/DELETE route under /audit-events at
+// all, so no request method can modify a recorded event.
+func TestAuditEvents_NoMutatingRouteExists(t *testing.T) {
+	router := NewRouter(newTestDeps(nil, nil))
+	for _, method := range []string{http.MethodPatch, http.MethodPut, http.MethodDelete, http.MethodPost} {
+		rec := doJSON(t, router, method, "/api/v1/audit-events", nil)
+		if rec.Code != http.StatusMethodNotAllowed && rec.Code != http.StatusNotFound {
+			t.Errorf("%s /audit-events = %d, want 404 or 405 (no mutating route must exist)", method, rec.Code)
+		}
 	}
 }

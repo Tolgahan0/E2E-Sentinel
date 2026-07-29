@@ -14,6 +14,7 @@ import (
 
 	"e2e-sentinel/apps/api/internal/artifacts"
 	"e2e-sentinel/apps/api/internal/audit"
+	"e2e-sentinel/apps/api/internal/auth"
 	"e2e-sentinel/apps/api/internal/bugreports"
 	"e2e-sentinel/apps/api/internal/config"
 	"e2e-sentinel/apps/api/internal/db"
@@ -25,6 +26,7 @@ import (
 	"e2e-sentinel/apps/api/internal/graph"
 	"e2e-sentinel/apps/api/internal/httpserver"
 	"e2e-sentinel/apps/api/internal/logging"
+	"e2e-sentinel/apps/api/internal/metrics"
 	"e2e-sentinel/apps/api/internal/planning"
 	"e2e-sentinel/apps/api/internal/projects"
 	"e2e-sentinel/apps/api/internal/providers"
@@ -109,6 +111,12 @@ func run(migrateOnly bool) error {
 		logger.Error().Err(err).Msg("creating fix workspaces directory failed")
 		return err
 	}
+	artifactStore := artifacts.NewFileStore(pgPool, cfg.ArtifactsDir)
+
+	// Retention (spec §9 "Retention jobs"): a simple ticker-based sweep,
+	// not the full job system spec §21 describes. Runs for the process
+	// lifetime; stops when the shutdown signal cancels ctx.
+	go artifacts.RunRetentionLoop(ctx, artifactStore, artifacts.DefaultRetentionSweepInterval, logger)
 
 	// Test execution (Phase 5) is optional: nil until
 	// SENTINEL_RUNNER_HOST_WORKSPACE_DIR is configured, since it requires
@@ -153,6 +161,24 @@ func run(migrateOnly bool) error {
 		logger.Info().Msg("secret encryption not configured (SENTINEL_SECRET_ENCRYPTION_KEY unset) — providers requiring an API key cannot be created")
 	}
 
+	// RBAC (Phase 9) is opt-in: SENTINEL_AUTH_ENABLED defaults to false,
+	// so every route behaves exactly as in Phases 0-8 unless explicitly
+	// turned on.
+	authStore := auth.NewPostgresStore(pgPool)
+	if cfg.AuthEnabled {
+		created, err := auth.EnsureBootstrapAdmin(ctx, authStore, cfg.AdminEmail, cfg.AdminPassword)
+		if err != nil {
+			logger.Error().Err(err).Msg("bootstrapping administrator account failed")
+			return err
+		}
+		if created {
+			logger.Info().Str("email", cfg.AdminEmail).Msg("bootstrap administrator account created")
+		}
+		logger.Info().Msg("RBAC enabled (SENTINEL_AUTH_ENABLED=true) — requests must authenticate via POST /auth/login")
+	} else {
+		logger.Info().Msg("RBAC not enabled (SENTINEL_AUTH_ENABLED unset) — every route is open, as in Phases 0-8")
+	}
+
 	router := httpserver.NewRouter(httpserver.Dependencies{
 		Postgres:         httpserver.PostgresPinger{Pool: pgPool},
 		Redis:            httpserver.RedisPinger{Client: redisClient},
@@ -164,7 +190,7 @@ func run(migrateOnly bool) error {
 		Graph:            graph.NewPostgresStore(pgPool),
 		Planning:         planning.NewPostgresStore(pgPool),
 		Runs:             runs.NewPostgresStore(pgPool),
-		Artifacts:        artifacts.NewFileStore(pgPool, cfg.ArtifactsDir),
+		Artifacts:        artifactStore,
 		Providers:        providers.NewPostgresStore(pgPool),
 		Settings:         settings.NewPostgresStore(pgPool),
 		Failures:         failures.NewPostgresStore(pgPool),
@@ -176,6 +202,9 @@ func run(migrateOnly bool) error {
 		Docker:           dockerClient,
 		Runner:           runner,
 		Secrets:          secretStore,
+		Auth:             authStore,
+		AuthEnabled:      cfg.AuthEnabled,
+		Metrics:          metrics.NewAppMetrics(metrics.NewRegistry()),
 		Logger:           logger,
 	})
 

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -15,12 +16,14 @@ import (
 
 	"e2e-sentinel/apps/api/internal/artifacts"
 	"e2e-sentinel/apps/api/internal/audit"
+	"e2e-sentinel/apps/api/internal/auth"
 	"e2e-sentinel/apps/api/internal/bugreports"
 	"e2e-sentinel/apps/api/internal/discovery"
 	"e2e-sentinel/apps/api/internal/environments"
 	"e2e-sentinel/apps/api/internal/failures"
 	"e2e-sentinel/apps/api/internal/fixproposals"
 	"e2e-sentinel/apps/api/internal/graph"
+	"e2e-sentinel/apps/api/internal/metrics"
 	"e2e-sentinel/apps/api/internal/planning"
 	"e2e-sentinel/apps/api/internal/projects"
 	"e2e-sentinel/apps/api/internal/providers"
@@ -79,90 +82,141 @@ type Dependencies struct {
 	// storing a provider API key works fine without it, per spec §16.6
 	// "No-AI Mode".
 	Secrets secretstore.Store
+	// Auth and AuthEnabled implement spec §19's RBAC. AuthEnabled
+	// defaults to false (SENTINEL_AUTH_ENABLED unset) — every route
+	// behaves exactly as in Phases 0-8 unless an operator explicitly
+	// turns this on, the same "safe default, explicit capability"
+	// pattern used throughout this project (Docker socket, secret
+	// encryption, test execution). Auth is nil when disabled.
+	Auth        auth.Store
+	AuthEnabled bool
+	// RateLimitRPS/RateLimitBurst configure the per-client-IP token
+	// bucket (spec §9 "Rate limiting"). Zero means "use the package
+	// defaults" (DefaultRateLimitRPS/DefaultRateLimitBurst).
+	RateLimitRPS   float64
+	RateLimitBurst int
+	// Metrics is always set — a fresh *metrics.AppMetrics per
+	// Dependencies (never a package-level global), so unrelated router
+	// instances (notably, each test) never share counters.
+	Metrics *metrics.AppMetrics
 	Logger  zerolog.Logger
 }
 
 // NewRouter builds the chi router for the API.
 func NewRouter(deps Dependencies) http.Handler {
+	rps := deps.RateLimitRPS
+	if rps == 0 {
+		rps = DefaultRateLimitRPS
+	}
+	burst := deps.RateLimitBurst
+	if burst == 0 {
+		burst = DefaultRateLimitBurst
+	}
+
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(requestLogger(deps.Logger))
+	r.Use(metricsMiddleware(deps))
 	r.Use(middleware.Recoverer)
+	r.Use(securityHeaders)
+	r.Use(rateLimit(rps, burst))
 
 	r.Get("/health", handleHealth)
 	r.Get("/ready", handleReady(deps))
+	// Unauthenticated, like /health and /ready — a scrape target is
+	// conventionally reached by an internal collector, not a browser
+	// user; firewall it the same way as the rest of this deployment
+	// (see docs/SECURITY_MODEL.md).
+	r.Get("/metrics", handleMetrics(deps))
 
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Get("/audit-events", handleListAuditEvents(deps))
+		r.Use(csrfProtection(deps))
 
-		r.Route("/projects", func(r chi.Router) {
-			r.Post("/", handleCreateProject(deps))
-			r.Get("/", handleListProjects(deps))
-			r.Route("/{projectID}", func(r chi.Router) {
-				r.Get("/", handleGetProject(deps))
-				r.Patch("/", handleUpdateProject(deps))
-				r.Post("/discover", handleDiscoverProject(deps))
-				r.Get("/discovery", handleGetDiscovery(deps))
-				r.Get("/environments", handleListEnvironments(deps))
-				r.Get("/services", handleListServices(deps))
-				r.Get("/graph", handleGetGraph(deps))
-				r.Post("/tests/plan", handleGenerateTestPlan(deps))
-				r.Get("/tests", handleListTests(deps))
-				r.Get("/runs", handleListProjectRuns(deps))
+		r.Get("/auth/status", handleAuthStatus(deps))
+		r.Post("/auth/login", handleLogin(deps))
+
+		r.Group(func(r chi.Router) {
+			r.Use(requireAuth(deps))
+
+			r.Post("/auth/logout", handleLogout(deps))
+			r.Get("/auth/me", handleGetCurrentUser(deps))
+
+			r.Get("/audit-events", handleListAuditEvents(deps))
+
+			r.Route("/projects", func(r chi.Router) {
+				r.Post("/", handleCreateProject(deps))
+				r.Get("/", handleListProjects(deps))
+				r.Route("/{projectID}", func(r chi.Router) {
+					r.Get("/", handleGetProject(deps))
+					r.Patch("/", handleUpdateProject(deps))
+					r.Post("/discover", handleDiscoverProject(deps))
+					r.Get("/discovery", handleGetDiscovery(deps))
+					r.Get("/environments", handleListEnvironments(deps))
+					r.Get("/services", handleListServices(deps))
+					r.Get("/graph", handleGetGraph(deps))
+					r.With(requirePermission(deps, auth.PermGenerateTests)).Post("/tests/plan", handleGenerateTestPlan(deps))
+					r.Get("/tests", handleListTests(deps))
+					r.Get("/runs", handleListProjectRuns(deps))
+					r.Get("/fix-proposals", handleListProjectFixProposals(deps))
+				})
 			})
-		})
 
-		r.Patch("/environments/{environmentID}", handleUpdateEnvironment(deps))
+			r.With(requirePermission(deps, auth.PermConfigureEnvironments)).
+				Patch("/environments/{environmentID}", handleUpdateEnvironment(deps))
 
-		r.Route("/tests/{testID}", func(r chi.Router) {
-			r.Patch("/", handleUpdateTest(deps))
-			r.Post("/approve", handleApproveTest(deps))
-			r.Post("/reject", handleRejectTest(deps))
-			r.Post("/run", handleRunTest(deps))
-		})
-
-		r.Route("/runs/{runID}", func(r chi.Router) {
-			r.Get("/", handleGetRun(deps))
-			r.Post("/cancel", handleCancelRun(deps))
-			r.Get("/artifacts", handleListRunArtifacts(deps))
-		})
-
-		r.Get("/artifacts/{artifactID}/content", handleGetArtifactContent(deps))
-
-		r.Route("/providers", func(r chi.Router) {
-			r.Get("/", handleListProviders(deps))
-			r.Post("/", handleCreateProvider(deps))
-			r.Get("/routing", handleGetTaskRouting(deps))
-			r.Patch("/routing", handleUpdateTaskRouting(deps))
-			r.Route("/{providerID}", func(r chi.Router) {
-				r.Patch("/", handlePatchProvider(deps))
-				r.Post("/test", handleTestProviderConnection(deps))
+			r.Route("/tests/{testID}", func(r chi.Router) {
+				r.Patch("/", handleUpdateTest(deps))
+				r.With(requirePermission(deps, auth.PermApproveTestPlans)).Post("/approve", handleApproveTest(deps))
+				r.With(requirePermission(deps, auth.PermApproveTestPlans)).Post("/reject", handleRejectTest(deps))
+				r.With(requirePermission(deps, auth.PermRunApprovedTests)).Post("/run", handleRunTest(deps))
 			})
-		})
 
-		r.Route("/bugs", func(r chi.Router) {
-			r.Get("/", handleListBugs(deps))
-			r.Route("/{bugID}", func(r chi.Router) {
-				r.Get("/", handleGetBug(deps))
-				r.Post("/resolve", handleResolveBug(deps))
-				r.Post("/reopen", handleReopenBug(deps))
-				r.Post("/notes", handleAddBugNote(deps))
-				r.Get("/export/markdown", handleExportBugMarkdown(deps))
-				r.Get("/export/json", handleExportBugJSON(deps))
-				r.Post("/fix-proposal", handleGenerateFixProposal(deps))
+			r.Route("/runs/{runID}", func(r chi.Router) {
+				r.Get("/", handleGetRun(deps))
+				r.With(requirePermission(deps, auth.PermRunApprovedTests)).Post("/cancel", handleCancelRun(deps))
+				r.Get("/artifacts", handleListRunArtifacts(deps))
 			})
-		})
 
-		r.Get("/projects/{projectID}/fix-proposals", handleListProjectFixProposals(deps))
+			r.Get("/artifacts/{artifactID}/content", handleGetArtifactContent(deps))
 
-		r.Route("/fix-proposals/{fixProposalID}", func(r chi.Router) {
-			r.Get("/", handleGetFixProposal(deps))
-			r.Patch("/", handleUpdateFixProposalRegressionTests(deps))
-			r.Post("/approve", handleApproveFixProposal(deps))
-			r.Post("/reject", handleRejectFixProposal(deps))
-			r.Post("/request-revision", handleRequestFixProposalRevision(deps))
-			r.Post("/apply-workspace", handleApplyFixToWorkspace(deps))
-			r.Post("/apply-repository", handleApplyFixToRepository(deps))
+			r.Route("/users", func(r chi.Router) {
+				r.With(requirePermission(deps, auth.PermManageUsers)).Get("/", handleListUsers(deps))
+				r.With(requirePermission(deps, auth.PermManageUsers)).Post("/", handleCreateUser(deps))
+			})
+
+			r.Route("/providers", func(r chi.Router) {
+				r.Get("/", handleListProviders(deps))
+				r.With(requirePermission(deps, auth.PermConfigureProviders)).Post("/", handleCreateProvider(deps))
+				r.Get("/routing", handleGetTaskRouting(deps))
+				r.With(requirePermission(deps, auth.PermConfigureProviders)).Patch("/routing", handleUpdateTaskRouting(deps))
+				r.Route("/{providerID}", func(r chi.Router) {
+					r.With(requirePermission(deps, auth.PermConfigureProviders)).Patch("/", handlePatchProvider(deps))
+					r.With(requirePermission(deps, auth.PermConfigureProviders)).Post("/test", handleTestProviderConnection(deps))
+				})
+			})
+
+			r.Route("/bugs", func(r chi.Router) {
+				r.Get("/", handleListBugs(deps))
+				r.Route("/{bugID}", func(r chi.Router) {
+					r.Get("/", handleGetBug(deps))
+					r.Post("/resolve", handleResolveBug(deps))
+					r.Post("/reopen", handleReopenBug(deps))
+					r.Post("/notes", handleAddBugNote(deps))
+					r.Get("/export/markdown", handleExportBugMarkdown(deps))
+					r.Get("/export/json", handleExportBugJSON(deps))
+					r.With(requirePermission(deps, auth.PermGenerateFixProposals)).Post("/fix-proposal", handleGenerateFixProposal(deps))
+				})
+			})
+
+			r.Route("/fix-proposals/{fixProposalID}", func(r chi.Router) {
+				r.Get("/", handleGetFixProposal(deps))
+				r.Patch("/", handleUpdateFixProposalRegressionTests(deps))
+				r.With(requirePermission(deps, auth.PermApproveRepositoryPatches)).Post("/approve", handleApproveFixProposal(deps))
+				r.With(requirePermission(deps, auth.PermApproveRepositoryPatches)).Post("/reject", handleRejectFixProposal(deps))
+				r.With(requirePermission(deps, auth.PermApproveRepositoryPatches)).Post("/request-revision", handleRequestFixProposalRevision(deps))
+				r.With(requirePermission(deps, auth.PermApplyWorkspace)).Post("/apply-workspace", handleApplyFixToWorkspace(deps))
+				r.With(requirePermission(deps, auth.PermApproveRepositoryPatches)).Post("/apply-repository", handleApplyFixToRepository(deps))
+			})
 		})
 	})
 
@@ -216,23 +270,78 @@ func handleReady(deps Dependencies) http.HandlerFunc {
 	}
 }
 
+// handleListAuditEvents supports spec §9 "Audit search": action_type,
+// resource_type, resource_id, actor, since/until (RFC 3339), and limit
+// are all optional query filters. There is deliberately no way to
+// modify or delete an event through this or any other route — the only
+// verb this package's Recorder interface exposes besides Record is
+// reading (spec §2.7 "Audit Everything" implies append-only, never
+// "audit sometimes").
 func handleListAuditEvents(deps Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		limit := 50
-		if raw := r.URL.Query().Get("limit"); raw != "" {
+		q := r.URL.Query()
+		filter := audit.SearchFilter{
+			ActionType:   q.Get("action_type"),
+			ResourceType: q.Get("resource_type"),
+			ResourceID:   q.Get("resource_id"),
+			Actor:        q.Get("actor"),
+		}
+		if raw := q.Get("limit"); raw != "" {
 			if parsed, err := strconv.Atoi(raw); err == nil {
-				limit = parsed
+				filter.Limit = parsed
 			}
 		}
+		if raw := q.Get("since"); raw != "" {
+			since, err := time.Parse(time.RFC3339, raw)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_since", "detail": "must be RFC 3339"})
+				return
+			}
+			filter.Since = since
+		}
+		if raw := q.Get("until"); raw != "" {
+			until, err := time.Parse(time.RFC3339, raw)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_until", "detail": "must be RFC 3339"})
+				return
+			}
+			filter.Until = until
+		}
 
-		events, err := deps.Audit.Recent(r.Context(), limit)
+		events, err := deps.Audit.Search(r.Context(), filter)
 		if err != nil {
-			deps.Logger.Error().Err(err).Msg("listing audit events failed")
+			deps.Logger.Error().Err(err).Msg("searching audit events failed")
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return
 		}
 
 		writeJSON(w, http.StatusOK, map[string]any{"events": events})
+	}
+}
+
+// metricsMiddleware counts every request by method and final status code
+// (spec §22's implied baseline metric — every other counter/gauge in
+// internal/metrics is instrumented at its own specific call site).
+func metricsMiddleware(deps Dependencies) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+			next.ServeHTTP(ww, r)
+			deps.Metrics.HTTPRequestsTotal.Inc(map[string]string{
+				"method": r.Method, "status": strconv.Itoa(ww.Status()),
+			})
+		})
+	}
+}
+
+// handleMetrics serves the current metrics snapshot in Prometheus text
+// exposition format.
+func handleMetrics(deps Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(deps.Metrics.Registry.Render()))
 	}
 }
 

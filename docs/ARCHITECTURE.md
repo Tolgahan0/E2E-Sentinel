@@ -41,6 +41,8 @@ apps/api (Go, chi router)
   +-- internal/failures      Deterministic failure classification + flaky assessment (spec §13)
   +-- internal/bugreports    Structured, deduplicated bug reports (spec §14)
   +-- internal/fixproposals  Candidate patches: pure-Go diff parser/applier, temp workspace, repo write (spec §15)
+  +-- internal/auth          RBAC: users, sessions, fixed role->permission mapping (spec §19, opt-in)
+  +-- internal/metrics       Hand-rolled Prometheus-format counters/gauges (spec §22)
   +-- internal/httpserver    HTTP handlers
   |
   +-- PostgreSQL
@@ -50,8 +52,8 @@ apps/api (Go, chi router)
   +-- AI provider APIs (Phase 6; optional, never required)
 ```
 
-Future phases add sibling packages under `internal/` — `scheduler/`,
-`telemetry/` — exactly as laid out in spec §5.
+Future phases add sibling packages under `internal/` — `scheduler/` —
+exactly as laid out in spec §5.
 
 ## Request flow
 
@@ -195,6 +197,12 @@ an edge's endpoints before they have database IDs.
   "Applied files match approved diff exactly"). `repository_applied_at`
   is set at most once (checked atomically by the store), so a proposal
   can only ever be written to the real repository a single time.
+- `users`, `sessions` — see `migrations/0010_auth.sql`. `password_hash`
+  is bcrypt; `sessions.token_hash` is a SHA-256 hash of the bearer
+  token — the raw token itself is never persisted anywhere, only
+  returned once, at login. RBAC built on these tables is opt-in
+  (`SENTINEL_AUTH_ENABLED`, default false); every other table is fully
+  usable whether or not these two are ever populated.
 
 ## Domain flow: running a test (Phase 5)
 
@@ -345,6 +353,51 @@ Every `GET`/`POST`/`PATCH /providers*` response is built through
 `secret_reference_id` — only a `has_api_key` boolean. There is no code
 path in `internal/httpserver` that can accidentally leak one back out.
 
+## Domain flow: authenticating and enforcing RBAC (Phase 9)
+
+Opt-in — every step below is skipped entirely when
+`SENTINEL_AUTH_ENABLED` is unset (the default):
+
+```text
+startup:
+  -> auth.EnsureBootstrapAdmin: no-op unless zero users exist AND
+     SENTINEL_ADMIN_EMAIL/PASSWORD are both set
+
+POST /auth/login {email, password}
+  -> auth.Store.GetUserByEmail -> auth.VerifyPassword (bcrypt)
+  -> the SAME generic "invalid_credentials" error either way — a caller
+     can never tell "wrong password" from "no such account"
+  -> auth.GenerateToken (256 bits) -> auth.Store.CreateSession(hash only)
+  -> audit: auth.login
+  -> return the raw token ONCE; only its hash is ever stored again
+
+[middleware, on every /api/v1 request]
+requireAuth:
+  -> extract "Authorization: Bearer <token>"; missing/invalid -> 401
+  -> auth.Store.GetSessionByTokenHash -> auth.Store.GetUserByID
+  -> attach the resolved user to the request context
+
+requirePermission(perm), applied per-route (e.g. approve_repository_patches
+  on POST /fix-proposals/{id}/apply-repository):
+  -> auth.HasPermission(user.Role, perm) -> 403 if the role doesn't grant it
+
+POST /auth/logout
+  -> auth.Store.DeleteSession — the presented token stops working immediately
+
+POST /api/v1/users {email, password, role}  (requires manage_users, i.e. Administrator)
+  -> auth.HashPassword -> auth.Store.CreateUser -> audit: user.create
+  -> this is the only way to add accounts beyond the bootstrap administrator
+GET /api/v1/users  (requires manage_users)
+  -> auth.Store.ListUsers, ordered by email
+```
+
+Every mutating route spec §19's example permission table names is gated
+this way; routes it doesn't mention (e.g. `POST /projects`) require only
+that *some* authenticated user is making the request, not a specific
+role. See [docs/APPROVAL_MODEL.md](APPROVAL_MODEL.md) for how this
+composes with the test-case and fix-proposal approval gates that predate
+RBAC and work identically whether or not it's turned on.
+
 ## Configuration
 
 All configuration is environment-variable based (`internal/config`), with
@@ -368,6 +421,12 @@ Per spec §2.2 and §34, there is still no code path that:
   context — Phase 8's AI-assisted fix generation prompts with only a
   bug's already-curated evidence (see docs/FIX_PROPOSALS.md); a safe
   repository-content pipeline (path allowlist + redaction, building on
-  Phase 6's internal/redaction) is reserved for later.
+  Phase 6's internal/redaction) is reserved for later,
+- authenticates by anything other than local email/password — OIDC/SAML
+  (spec §19) are architecturally accommodated (`auth.Store` is a plain
+  interface) but not implemented,
+- traces a request across packages — `internal/metrics` covers counters/
+  gauges (spec §22 "Metrics"); OpenTelemetry distributed tracing (spec
+  §22 "Traces") is a documented ceiling, not attempted.
 
 These are reserved extension points for later phases.

@@ -216,8 +216,10 @@ func generateProposalViaAI(ctx context.Context, deps Dependencies, bug bugreport
 		MaxTokens:    2048,
 	})
 	if err != nil {
+		deps.Metrics.AIRequestsTotal.Inc(map[string]string{"provider_type": provider.Type, "outcome": "error"})
 		return fixproposals.FixProposal{}, fmt.Errorf("provider request failed: %w", err)
 	}
+	deps.Metrics.AIRequestsTotal.Inc(map[string]string{"provider_type": provider.Type, "outcome": "ok"})
 
 	diff, err := providers.ExtractUnifiedDiff(result.Text)
 	if err != nil {

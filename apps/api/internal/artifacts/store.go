@@ -117,6 +117,47 @@ func (s *FileStore) Read(ctx context.Context, artifactID string) ([]byte, Artifa
 	return data, a, nil
 }
 
+// DeleteExpired removes every artifact whose retention_until has
+// passed: the file first, then the metadata row — if the file removal
+// fails, the row is kept so the artifact isn't silently forgotten while
+// its bytes still occupy disk.
+func (s *FileStore) DeleteExpired(ctx context.Context, now time.Time) (int, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, storage_path FROM artifacts WHERE retention_until IS NOT NULL AND retention_until < $1
+	`, now)
+	if err != nil {
+		return 0, fmt.Errorf("artifacts: finding expired artifacts: %w", err)
+	}
+	type candidate struct{ id, storagePath string }
+	var candidates []candidate
+	for rows.Next() {
+		var c candidate
+		if err := rows.Scan(&c.id, &c.storagePath); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("artifacts: scanning expired artifact: %w", err)
+		}
+		candidates = append(candidates, c)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("artifacts: reading expired artifacts: %w", err)
+	}
+
+	deleted := 0
+	for _, c := range candidates {
+		if c.storagePath != "" {
+			if err := os.Remove(filepath.Join(s.baseDir, c.storagePath)); err != nil && !os.IsNotExist(err) {
+				continue
+			}
+		}
+		if _, err := s.pool.Exec(ctx, `DELETE FROM artifacts WHERE id = $1`, c.id); err != nil {
+			continue
+		}
+		deleted++
+	}
+	return deleted, nil
+}
+
 type rowScanner interface {
 	Scan(dest ...any) error
 }

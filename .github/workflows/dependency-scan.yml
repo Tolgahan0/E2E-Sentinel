@@ -1,0 +1,42 @@
+name: Dependency scan
+
+# Spec §9 Production Hardening "Dependency scanning". Runs on every push
+# and pull request against main, plus a weekly schedule so newly
+# disclosed vulnerabilities in already-pinned dependencies are caught
+# even without a code change triggering the workflow.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  go-vuln-check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/api/go.mod
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  npm-audit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npm audit --audit-level=high
