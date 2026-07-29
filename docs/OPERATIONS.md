@@ -84,6 +84,32 @@ PR to `main` and weekly. See
 the specific findings as of when Phase 9 shipped and why they weren't
 auto-remediated.
 
+## Notifications (webhook)
+
+`Settings` page has one webhook URL field. When set, a `POST` fires
+(fire-and-forget, in its own goroutine, never blocking whatever
+triggered it) on exactly two events:
+
+- `bug_report.created` — only the first time a `(project, test case,
+  failure type)` combination produces a bug; a recurring failure just
+  updates the existing bug's frequency and does not re-notify.
+- `fix_proposal.pending_review` — every fix proposal, since one always
+  starts `pending_review` (spec §15, never auto-approved).
+
+This is a v1 ceiling, not a job system: one URL, no retry queue, no
+delivery tracking, no request signature (spec §21's full job system —
+idempotency keys, retry policy, dead-letter handling — is separately
+reserved, larger infrastructure). A failed delivery is logged and
+otherwise has no effect. `POST /api/v1/notifications/webhook/test`
+sends a synthetic event immediately, so a delivery can be confirmed
+without waiting for a real bug or fix proposal.
+
+The webhook URL is exactly as trusted as an AI provider's `base_url`
+(spec §16.3's SSRF discussion in [docs/SECURITY_MODEL.md](SECURITY_MODEL.md)
+applies here too) — configuring it is an administrator action
+(`configure_providers` permission once RBAC is on), not attacker-
+reachable input.
+
 ## Not yet implemented
 
 Kubernetes-specific operational tooling (Phase 10), OpenTelemetry

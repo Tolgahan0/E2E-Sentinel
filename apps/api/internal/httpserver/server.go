@@ -32,6 +32,7 @@ import (
 	"e2e-sentinel/apps/api/internal/secretstore"
 	"e2e-sentinel/apps/api/internal/services"
 	"e2e-sentinel/apps/api/internal/settings"
+	"e2e-sentinel/apps/api/internal/webhooks"
 )
 
 // Pinger checks connectivity to a dependency. Implemented by thin adapters
@@ -107,6 +108,12 @@ type Dependencies struct {
 	// Dependencies (never a package-level global), so unrelated router
 	// instances (notably, each test) never share counters.
 	Metrics *metrics.AppMetrics
+	// Webhooks is always set (building it needs no credentials, same as
+	// ProviderHealth/Completer) — whether a notification actually goes
+	// anywhere depends on whether a URL is configured in Settings under
+	// webhooks.SettingsKey; an unconfigured Sender.Send is a no-op, not
+	// an error.
+	Webhooks *webhooks.Sender
 	// Kube is optional: nil means "Kubernetes discovery is not
 	// configured" (SENTINEL_KUBE_CONFIG_PATH unset and not running
 	// in-cluster) — spec §7.5 Phase 10. Every other feature is
@@ -160,6 +167,12 @@ func NewRouter(deps Dependencies) http.Handler {
 			r.Get("/auth/me", handleGetCurrentUser(deps))
 
 			r.Get("/audit-events", handleListAuditEvents(deps))
+
+			r.Route("/notifications/webhook", func(r chi.Router) {
+				r.Get("/", handleGetWebhookConfig(deps))
+				r.With(requirePermission(deps, auth.PermConfigureProviders)).Patch("/", handleUpdateWebhookConfig(deps))
+				r.With(requirePermission(deps, auth.PermConfigureProviders)).Post("/test", handleTestWebhook(deps))
+			})
 
 			r.Route("/projects", func(r chi.Router) {
 				r.Post("/", handleCreateProject(deps))

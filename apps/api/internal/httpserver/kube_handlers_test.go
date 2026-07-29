@@ -20,7 +20,9 @@ type fakeKubeAPI struct {
 	listErr     error
 }
 
-func (f *fakeKubeAPI) ListNamespaces(context.Context) ([]kubeclient.Namespace, error) { return nil, f.listErr }
+func (f *fakeKubeAPI) ListNamespaces(context.Context) ([]kubeclient.Namespace, error) {
+	return nil, f.listErr
+}
 func (f *fakeKubeAPI) ListDeployments(context.Context, string) ([]kubeclient.Deployment, error) {
 	return f.deployments, f.listErr
 }
@@ -30,7 +32,9 @@ func (f *fakeKubeAPI) ListStatefulSets(context.Context, string) ([]kubeclient.St
 func (f *fakeKubeAPI) ListDaemonSets(context.Context, string) ([]kubeclient.DaemonSet, error) {
 	return nil, f.listErr
 }
-func (f *fakeKubeAPI) ListJobs(context.Context, string) ([]kubeclient.Job, error) { return nil, f.listErr }
+func (f *fakeKubeAPI) ListJobs(context.Context, string) ([]kubeclient.Job, error) {
+	return nil, f.listErr
+}
 func (f *fakeKubeAPI) ListCronJobs(context.Context, string) ([]kubeclient.CronJob, error) {
 	return nil, f.listErr
 }
@@ -49,7 +53,9 @@ func (f *fakeKubeAPI) ListConfigMaps(context.Context, string) ([]kubeclient.Conf
 func (f *fakeKubeAPI) ListSecrets(context.Context, string) ([]kubeclient.SecretSummary, error) {
 	return nil, f.listErr
 }
-func (f *fakeKubeAPI) ListPods(context.Context, string) ([]kubeclient.Pod, error) { return nil, f.listErr }
+func (f *fakeKubeAPI) ListPods(context.Context, string) ([]kubeclient.Pod, error) {
+	return nil, f.listErr
+}
 func (f *fakeKubeAPI) ListEvents(context.Context, string) ([]kubeclient.Event, error) {
 	return f.events, f.listErr
 }

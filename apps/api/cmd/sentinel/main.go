@@ -36,6 +36,7 @@ import (
 	"e2e-sentinel/apps/api/internal/secretstore"
 	"e2e-sentinel/apps/api/internal/services"
 	"e2e-sentinel/apps/api/internal/settings"
+	"e2e-sentinel/apps/api/internal/webhooks"
 )
 
 func main() {
@@ -257,6 +258,7 @@ func run(migrateOnly bool) error {
 		Auth:             authStore,
 		AuthEnabled:      cfg.AuthEnabled,
 		Metrics:          metrics.NewAppMetrics(metrics.NewRegistry()),
+		Webhooks:         webhooks.NewSender(),
 		Logger:           logger,
 	})
 

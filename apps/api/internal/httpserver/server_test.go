@@ -27,6 +27,7 @@ import (
 	"e2e-sentinel/apps/api/internal/runs"
 	"e2e-sentinel/apps/api/internal/services"
 	"e2e-sentinel/apps/api/internal/settings"
+	"e2e-sentinel/apps/api/internal/webhooks"
 )
 
 type fakePinger struct{ err error }
@@ -62,6 +63,7 @@ func newTestDeps(pgErr, redisErr error) Dependencies {
 		Metrics:          metrics.NewAppMetrics(metrics.NewRegistry()),
 		Kube:             nil, // no kubeconfig configured by default; see kube_handlers_test.go for a fake API
 		KubeResources:    kubediscovery.NewMemoryStore(),
+		Webhooks:         webhooks.NewSender(),
 	}
 }
 

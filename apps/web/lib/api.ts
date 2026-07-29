@@ -360,6 +360,14 @@ export interface KubePodLogsResponse {
   logs: string;
 }
 
+// Outbound notifications (v1: bug_report.created, fix_proposal.pending_review)
+// — one webhook URL, no retry queue, no delivery tracking; see
+// docs/OPERATIONS.md for the documented ceiling.
+export interface WebhookConfigResponse {
+  configured: boolean;
+  url: string;
+}
+
 // Phase 9 RBAC (opt-in — see GET /auth/status). The bearer token is
 // stored client-side only in this tab's memory-backed storage
 // (sessionStorage, not localStorage: it should not silently persist

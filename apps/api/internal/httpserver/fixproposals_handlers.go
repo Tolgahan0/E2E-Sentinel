@@ -14,6 +14,7 @@ import (
 	"e2e-sentinel/apps/api/internal/bugreports"
 	"e2e-sentinel/apps/api/internal/fixproposals"
 	"e2e-sentinel/apps/api/internal/providers"
+	"e2e-sentinel/apps/api/internal/webhooks"
 )
 
 type fileResultResponse struct {
@@ -156,6 +157,14 @@ func handleGenerateFixProposal(deps Dependencies) http.HandlerFunc {
 		}); err != nil {
 			deps.Logger.Error().Err(err).Msg("recording fix_proposal.created audit event failed")
 		}
+
+		// Every fix proposal starts pending_review (never auto-approved,
+		// spec §15) — this is always a genuinely new thing waiting on a
+		// human decision, unlike bug reports which can be a repeat.
+		notifyAsync(deps, webhooks.Event{
+			Type: webhooks.EventFixProposalPendingReview, ProjectID: created.ProjectID, ResourceType: "fix_proposal",
+			ResourceID: created.ID, Title: created.Title, Severity: created.RiskLevel, OccurredAt: time.Now(),
+		})
 
 		writeJSON(w, http.StatusCreated, toFixProposalResponse(created))
 	}

@@ -10,6 +10,7 @@ import (
 	"e2e-sentinel/apps/api/internal/failures"
 	"e2e-sentinel/apps/api/internal/graph"
 	"e2e-sentinel/apps/api/internal/runs"
+	"e2e-sentinel/apps/api/internal/webhooks"
 )
 
 // recordFailureAndBug turns a failed/errored run into a Failure record
@@ -97,6 +98,17 @@ func recordFailureAndBug(ctx context.Context, deps Dependencies, run runs.TestRu
 		Metadata: map[string]any{"severity": bug.Severity, "failure_type": bug.FailureType, "frequency": bug.Frequency},
 	}); err != nil {
 		logger.Warn().Err(err).Msg("recording bug_report audit event failed")
+	}
+
+	// Only the first time this exact (project, test case, failure type)
+	// combination is seen — a recurring failure just bumps the existing
+	// bug's frequency, which would otherwise notify on every single
+	// re-occurrence.
+	if isNew {
+		notifyAsync(deps, webhooks.Event{
+			Type: webhooks.EventBugReportCreated, ProjectID: bug.ProjectID, ResourceType: "bug_report",
+			ResourceID: bug.ID, Title: bug.Title, Severity: bug.Severity, OccurredAt: time.Now(),
+		})
 	}
 }
 
