@@ -16,8 +16,8 @@ previous one's acceptance criteria are demonstrated (spec §33).
 | 7 | Failure Analysis & Bug Reports | **Done** |
 | 8 | Fix Proposals | **Done** |
 | 9 | Production Hardening | **Done** |
-| 10 | Kubernetes Discovery | Not started |
-| 11 | Advanced Test Adapters (WebSocket, Maestro, Detox, k6, ZAP, Nuclei, Schemathesis, Pact, Kafka) | Not started |
+| 10 | Kubernetes Discovery | **Done** |
+| 11 | Advanced Test Adapters (WebSocket, Maestro, Detox, k6, ZAP, Nuclei, Schemathesis, Pact, Kafka) | **Done** (WebSocket only — see below) |
 
 ## Phase 0 — Foundation (done)
 
@@ -573,7 +573,62 @@ ServiceAccount token scoped to the example ClusterRole — see
 docs/KUBERNETES_DISCOVERY.md and the Phase 10 commit for the concrete
 verification steps.
 
-## Next: Phase 11 — Advanced Test Adapters
+## Phase 11 — Advanced Test Adapters (WebSocket done; rest documented as deferred)
 
-Per spec §25 Phase 11: WebSocket adapter, Maestro, Detox, k6, ZAP,
-Nuclei, Schemathesis, Pact, Kafka/event testing.
+Spec §25 marks this phase "Later" — the lowest-priority, broadest, least
+specified item in the roadmap. Consistent with this project's rule
+against overclaiming (spec §36), one of its eight tools — WebSocket — is
+implemented end-to-end and live-verified; the other seven
+(Maestro, Detox, k6, ZAP, Nuclei, Schemathesis, Pact, Kafka) are
+explicitly documented as a designed-but-unimplemented extension point,
+not silently stubbed or assumed. See
+[docs/TEST_ADAPTERS.md](TEST_ADAPTERS.md) for the full picture.
+
+- **Detection** (`internal/routes.KindWebSocket`): a new regex-based
+  extractor scans every already-scanned source file for a literal
+  `ws://`/`wss://` URL — one extractor covers every language this
+  project already discovers routes in (JS/TS/Go/Python), since a
+  WebSocket URL literal shows up the same way regardless of which
+  client library embeds it. Medium confidence, same as every other
+  regex-matched route.
+- **Planning**: a WebSocket route produces one `connectivity`-category
+  test case (`Framework: "websocket"`) — "connection succeeds and
+  yields at least one message within a timeout." Non-mutating,
+  production-safe.
+- **Generation** (`internal/testgen.generateWebSocketSpec`): a plain
+  Node.js script (the globally-installed `ws` package, no Playwright)
+  that connects, waits up to 5 seconds for any message, and exits
+  0/1 accordingly — the same smoke-level, no-AI honesty as every other
+  generator in this package.
+- **Execution** (`internal/runs.DockerWebSocketRunner` +
+  `deploy/docker/Dockerfile.runner-websocket`): the same disposable-
+  container isolation model as the Playwright runner (spec §11.1), on a
+  dedicated, much smaller image (`node:20-alpine` + `ws`, no browser
+  stack). `Dependencies` gained a second named runner field
+  (`WebSocketRunner`, not a generic registry — consistent with every
+  other optional capability field), selected by `TestCase.Framework` in
+  `runs_handlers.go`'s `runnerFor`/`runnerByName`. A WebSocket test skips
+  the environment `base_url` requirement entirely, since its `RoutePath`
+  is already a complete target URL.
+- **Why the other seven are deferred, specifically**: k6 needs new
+  `TestCase` fields (RPS/duration/thresholds) a smoke-test model doesn't
+  have; ZAP/Nuclei scan a target, not a per-route script, a different
+  shape of feature than this package's model; Schemathesis needs to run
+  once against a whole OpenAPI document, not per-route; Pact needs a
+  broker (stateful infrastructure, not just a runner image); Kafka has
+  no literal-URL-style detection signal and needs a running broker to
+  test against; Maestro/Detox need a mobile emulator/simulator in the
+  runner container — a heavier isolation environment than any adapter
+  here. None of these are half-built; see docs/TEST_ADAPTERS.md for the
+  full reasoning per tool.
+
+Acceptance criteria (spec) — verified: a real WebSocket echo-server
+fixture, discovered end-to-end (repository scan → route extraction →
+application graph → deterministic test plan → approval → generated
+Node.js script → disposable-container execution → pass/fail recorded
+from the process exit code, no AI involved at any step); a broken/
+unreachable endpoint correctly produces a `failed` run with a clear
+stderr message, not a crash; existing "playwright"/"api" framework
+tests are entirely unaffected (full pre-existing test suite passes
+unmodified) — see the Phase 11 commit for the concrete live-verification
+steps against a real Docker container.

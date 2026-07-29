@@ -11,12 +11,13 @@ import "strings"
 
 // Kind values for a Route.
 const (
-	KindPage    = "page"
-	KindAPI     = "api"
-	KindHealth  = "health"
-	KindAuth    = "auth"
-	KindAdmin   = "admin"
-	KindWebhook = "webhook"
+	KindPage      = "page"
+	KindAPI       = "api"
+	KindHealth    = "health"
+	KindAuth      = "auth"
+	KindAdmin     = "admin"
+	KindWebhook   = "webhook"
+	KindWebSocket = "websocket"
 )
 
 const (
@@ -26,7 +27,12 @@ const (
 
 // Route is one discovered route.
 type Route struct {
-	Method     string // "" for a browser page route with no single HTTP method
+	Method string // "" for a browser page route with no single HTTP method
+	// Path is a relative URL path (e.g. "/api/users") for every Kind
+	// except KindWebSocket, where it holds the full matched
+	// "ws://"/"wss://" URL literal instead — a WebSocket client almost
+	// always specifies a complete endpoint, not something meaningfully
+	// joinable with an environment's HTTP base_url.
 	Path       string
 	Kind       string
 	SourcePath string

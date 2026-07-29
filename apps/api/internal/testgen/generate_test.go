@@ -79,6 +79,59 @@ func TestGenerateSpec_UnknownMethodDefaultsToGet(t *testing.T) {
 	}
 }
 
+func TestGenerateSpec_WebSocketTest(t *testing.T) {
+	filename, content, err := GenerateSpec(TestCaseInput{
+		ID: "ws-1", Title: "Socket accepts a connection", RoutePath: "ws://localhost:8080/socket", Framework: "websocket",
+	}, "")
+	if err != nil {
+		t.Fatalf("GenerateSpec() error: %v", err)
+	}
+	if filename != "generated-ws-1.test.js" {
+		t.Errorf("filename = %q, want generated-ws-1.test.js", filename)
+	}
+	if !strings.Contains(content, `require('ws')`) {
+		t.Errorf("expected the ws package to be required, got:\n%s", content)
+	}
+	if !strings.Contains(content, `"ws://localhost:8080/socket"`) {
+		t.Errorf("content missing the target URL:\n%s", content)
+	}
+	if !strings.Contains(content, "process.exit(0)") || !strings.Contains(content, "process.exit(1)") {
+		t.Errorf("expected explicit pass/fail exit codes, got:\n%s", content)
+	}
+}
+
+func TestGenerateSpec_WebSocketIgnoresBaseURL(t *testing.T) {
+	// baseURL is irrelevant for websocket framework tests — RoutePath is
+	// already a full ws:// URL — so an empty baseURL must not trigger
+	// ErrMissingBaseURL the way it would for playwright/api tests.
+	_, _, err := GenerateSpec(TestCaseInput{
+		ID: "ws-2", Title: "x", RoutePath: "ws://localhost:8080/socket", Framework: "websocket",
+	}, "")
+	if err != nil {
+		t.Fatalf("GenerateSpec() error: %v, want nil even with an empty baseURL", err)
+	}
+}
+
+func TestGenerateSpec_WebSocketRequiresRoutePath(t *testing.T) {
+	_, _, err := GenerateSpec(TestCaseInput{ID: "ws-3", Title: "x", Framework: "websocket"}, "")
+	if !errors.Is(err, ErrMissingWebSocketURL) {
+		t.Fatalf("err = %v, want ErrMissingWebSocketURL", err)
+	}
+}
+
+func TestGenerateSpec_WebSocketTitleCannotBreakOutOfComment(t *testing.T) {
+	_, content, err := GenerateSpec(TestCaseInput{
+		ID: "ws-4", Title: "line one\nprocess.exit(1) // line two", RoutePath: "ws://localhost:8080/socket", Framework: "websocket",
+	}, "")
+	if err != nil {
+		t.Fatalf("GenerateSpec() error: %v", err)
+	}
+	firstLine := strings.SplitN(content, "\n", 2)[0]
+	if !strings.HasPrefix(firstLine, "//") {
+		t.Errorf("first line = %q, want a comment (title must not break out of it)", firstLine)
+	}
+}
+
 func TestGenerateSpec_FilenameIsFilesystemSafe(t *testing.T) {
 	filename, _, err := GenerateSpec(TestCaseInput{ID: "../../etc/passwd", Title: "x", RoutePath: "/x"}, "http://localhost:3000")
 	if err != nil {

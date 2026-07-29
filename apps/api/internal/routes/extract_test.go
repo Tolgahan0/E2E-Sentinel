@@ -112,6 +112,51 @@ router.post("/api/v1/orders", createOrder);
 	}
 }
 
+func TestExtract_WebSocketURLLiteral(t *testing.T) {
+	root := t.TempDir()
+	writeFixture(t, root, "client.js", `
+const socket = new WebSocket("ws://localhost:8080/socket");
+socket.onopen = () => console.log('connected');
+`)
+
+	routes, err := Extract(root, nil)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	ws, ok := findRoute(routes, "", "ws://localhost:8080/socket")
+	if !ok {
+		t.Fatalf("expected a websocket route for ws://localhost:8080/socket, got %+v", routes)
+	}
+	if ws.Kind != KindWebSocket {
+		t.Errorf("Kind = %q, want websocket", ws.Kind)
+	}
+	if ws.Confidence != ConfidenceMedium {
+		t.Errorf("Confidence = %q, want medium", ws.Confidence)
+	}
+	if ws.SourcePath != "client.js" {
+		t.Errorf("SourcePath = %q, want client.js", ws.SourcePath)
+	}
+}
+
+func TestExtract_WebSocketURLLiteralSecureScheme(t *testing.T) {
+	root := t.TempDir()
+	writeFixture(t, root, "client.py", `
+import websockets
+async def connect():
+    async with websockets.connect("wss://api.example.com/ws") as ws:
+        pass
+`)
+
+	routes, err := Extract(root, nil)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+	if _, ok := findRoute(routes, "", "wss://api.example.com/ws"); !ok {
+		t.Fatalf("expected a websocket route for wss://api.example.com/ws, got %+v", routes)
+	}
+}
+
 func TestExtract_GoChiStyleRoutes(t *testing.T) {
 	root := t.TempDir()
 	writeFixture(t, root, "internal/httpserver/server.go", `

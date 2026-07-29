@@ -14,7 +14,9 @@ without explicit approval.
 
 This repository is being built incrementally against
 [`E2E_SENTINEL_CODEX_MASTER_SPEC.md`](E2E_SENTINEL_CODEX_MASTER_SPEC.md).
-**Phases 0–10** are implemented; see [docs/ROADMAP.md](docs/ROADMAP.md)
+**Phases 0–11** are implemented (Phase 11 partially — see
+[docs/TEST_ADAPTERS.md](docs/TEST_ADAPTERS.md)); see
+[docs/ROADMAP.md](docs/ROADMAP.md)
 for what comes next and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) /
 [ADR 0001](docs/adr/0001-phase0-foundation.md) for the reasoning behind
 the foundational choices.
@@ -106,6 +108,13 @@ the foundational choices.
   example ships at `deploy/k8s/read-only-clusterrole.yaml`; a partial RBAC
   restriction or a missing CRD degrades to a warning, never a failed
   request.
+- **WebSocket test adapter** (one of spec §25 Phase 11's eight tools —
+  see [docs/TEST_ADAPTERS.md](docs/TEST_ADAPTERS.md) for why the other
+  seven are documented as deferred instead of built): repository scan
+  detects `ws://`/`wss://` URL literals, planning generates a
+  connectivity smoke-test case, and a dedicated disposable-container
+  runner (plain Node.js + `ws`, no browser stack) executes it —
+  pass/fail from the script's own exit code, no AI involved.
 - A Next.js panel (`apps/web`) on port `9090`: Dashboard, Audit Logs,
   Projects, Discovery (findings + services), Application Map, Kubernetes,
   Test Inventory, Runs, AI Providers, Bugs, and Fix Proposals are

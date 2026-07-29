@@ -26,8 +26,7 @@ Docker SDK — keeping the capability surface deliberately narrow (spec
 §7.3, §11.1).
 
 `internal/runs.Runner` is the interface (spec §11.2, adapted — `Prepare`
-is folded into `Execute` since there is exactly one runner
-implementation and no scheduling queue yet):
+is folded into `Execute` since there is no scheduling queue yet):
 
 ```go
 type Runner interface {
@@ -40,7 +39,17 @@ type Runner interface {
 }
 ```
 
-`DockerPlaywrightRunner` is the current (only) implementation.
+`DockerPlaywrightRunner` handles the "playwright"/"api" frameworks.
+`DockerWebSocketRunner` (Phase 11, spec §25 "WebSocket adapter") handles
+"websocket" — the same container-lifecycle shape, pointed at a much
+smaller image (`deploy/docker/Dockerfile.runner-websocket`: plain
+Node.js + the `ws` package, no browser stack). `internal/httpserver`'s
+`Dependencies` has one field per runner (`Runner`, `WebSocketRunner`),
+selected by `TestCase.Framework` — see
+[docs/TEST_ADAPTERS.md](TEST_ADAPTERS.md) for the full picture,
+including which of spec §25 Phase 11's other tools (Maestro, Detox, k6,
+ZAP, Nuclei, Schemathesis, Pact, Kafka) remain a designed-but-
+unimplemented extension point.
 
 ## Why a direct socket mount
 
@@ -108,12 +117,14 @@ unit tests, which don't touch a real daemon):
 
 ## Test generation
 
-`internal/testgen` deterministically generates a Playwright spec from a
+`internal/testgen` deterministically generates a runnable spec from a
 `TestCase` — no AI involved (spec §16.6). Given no schema or AI input,
 generated assertions are necessarily smoke-level:
 
 - Page routes (no HTTP method): navigate, assert no console/page error.
 - API routes: call the endpoint, assert the response isn't a 5xx.
+- WebSocket routes (Phase 11): connect, assert a message arrives within
+  a timeout — see [docs/TEST_ADAPTERS.md](TEST_ADAPTERS.md).
 
 This ceiling is deliberate and documented, not hidden — see spec §36's
 prohibition on overclaiming coverage.

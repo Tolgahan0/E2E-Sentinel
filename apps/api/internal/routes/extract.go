@@ -99,6 +99,17 @@ func classifyRouteFile(c *collector, root, rel string) {
 	case ".py":
 		extractPythonRouterCalls(c, root, rel)
 	}
+
+	// WebSocket URL literals (spec §7.6 "WebSocket endpoints") are
+	// scanned for across every source file regardless of language —
+	// language-specific client APis (JS `new WebSocket(...)`, Python
+	// `websockets.connect(...)`, etc.) all end up embedding a literal
+	// "ws://"/"wss://" URL somewhere, so matching the URL literal itself
+	// is simpler and more portable than parsing each client API.
+	switch ext {
+	case ".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs", ".go", ".py":
+		extractWebSocketURLs(c, root, rel)
+	}
 }
 
 // nextAppSegments returns the URL path segments for a file under a
@@ -190,6 +201,26 @@ func extractPythonRouterCalls(c *collector, root, rel string) {
 	for _, m := range pyRouterRe.FindAllStringSubmatch(string(data), -1) {
 		c.add(Route{Method: strings.ToUpper(m[1]), Path: m[2], Kind: ClassifyPathKind(m[2], true), SourcePath: rel, Confidence: ConfidenceMedium,
 			Evidence: map[string]any{"pattern": "flask/fastapi-style decorator"}})
+	}
+}
+
+// --- WebSocket URL literals (medium confidence) ---
+
+// wsURLRe matches a "ws://" or "wss://" URL literal, stopping at the
+// first quote/backtick/whitespace — deliberately loose (no attempt to
+// distinguish a real connection target from a URL embedded in a
+// comment or string constant elsewhere) since spec §7.6 only asks for
+// an inventory with evidence, not a guarantee of runtime correctness.
+var wsURLRe = regexp.MustCompile(`wss?://[^\s'"` + "`" + `)]+`)
+
+func extractWebSocketURLs(c *collector, root, rel string) {
+	data, err := os.ReadFile(filepath.Join(root, rel))
+	if err != nil {
+		return
+	}
+	for _, url := range wsURLRe.FindAllString(string(data), -1) {
+		c.add(Route{Path: url, Kind: KindWebSocket, SourcePath: rel, Confidence: ConfidenceMedium,
+			Evidence: map[string]any{"pattern": "websocket URL literal"}})
 	}
 }
 

@@ -140,6 +140,28 @@ func run(migrateOnly bool) error {
 		logger.Info().Msg("test runner not configured (SENTINEL_RUNNER_HOST_WORKSPACE_DIR unset) — POST /tests/{id}/run will return 503")
 	}
 
+	// WebSocket adapter (Phase 11): same optional, "safe default"
+	// pattern as the Playwright runner above — nil until
+	// SENTINEL_RUNNER_HOST_WORKSPACE_DIR is configured (the two runners
+	// share the same host workspace directory, just different
+	// sub-images), so a "websocket" framework test's POST /run returns
+	// 503 independently of whether the Playwright runner is configured.
+	var webSocketRunner runs.Runner
+	if cfg.RunnerWorkspaceHostDir != "" {
+		webSocketRunner = &runs.DockerWebSocketRunner{
+			Docker:                dockerClient,
+			Image:                 cfg.WebSocketRunnerImage,
+			WorkspaceContainerDir: cfg.RunnerWorkspaceContainerDir,
+			WorkspaceHostDir:      cfg.RunnerWorkspaceHostDir,
+			MemoryBytes:           1 << 28, // 256 MiB — a WebSocket smoke test needs far less than a browser
+			NanoCPUs:              cfg.RunnerNanoCPUs,
+			Timeout:               cfg.RunnerTimeout,
+		}
+		logger.Info().Str("image", cfg.WebSocketRunnerImage).Msg("websocket runner configured")
+	} else {
+		logger.Info().Msg("websocket runner not configured (SENTINEL_RUNNER_HOST_WORKSPACE_DIR unset) — a websocket-framework test's POST /run will return 503")
+	}
+
 	// AI provider API key storage (Phase 6) is optional: nil until
 	// SENTINEL_SECRET_ENCRYPTION_KEY is configured. Every feature except
 	// storing a provider's API key works fine without it (spec §16.6
@@ -227,6 +249,7 @@ func run(migrateOnly bool) error {
 		FixWorkspacesDir: cfg.FixWorkspacesDir,
 		Docker:           dockerClient,
 		Runner:           runner,
+		WebSocketRunner:  webSocketRunner,
 		Kube:             kubeAPI,
 		KubeResources:    kubediscovery.NewPostgresStore(pgPool),
 		KubeNamespace:    kubeNamespace,

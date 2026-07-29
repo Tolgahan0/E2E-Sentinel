@@ -76,8 +76,15 @@ type Dependencies struct {
 	Docker DockerLister
 	// Runner is optional: nil means "test execution is not configured"
 	// (SENTINEL_RUNNER_HOST_WORKSPACE_DIR unset) — every other feature
-	// works fine without it; POST /tests/{id}/run returns 503.
+	// works fine without it; POST /tests/{id}/run returns 503. Used for
+	// every TestCase.Framework except "websocket" (spec §25 Phase 11).
 	Runner runs.Runner
+	// WebSocketRunner is optional, same nil-means-unconfigured pattern
+	// as Runner — a separate field (not a generic map) so this stays
+	// consistent with every other capability field in this struct.
+	// Selected instead of Runner only for TestCase.Framework ==
+	// "websocket".
+	WebSocketRunner runs.Runner
 	// Secrets is optional: nil means "no encryption key configured"
 	// (SENTINEL_SECRET_ENCRYPTION_KEY unset) — every feature except
 	// storing a provider API key works fine without it, per spec §16.6

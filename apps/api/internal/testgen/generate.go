@@ -17,6 +17,10 @@ import (
 // target base URL — there is nothing to point a generated test at.
 var ErrMissingBaseURL = errors.New("testgen: environment has no base_url configured")
 
+// ErrMissingWebSocketURL is returned when a "websocket" framework test
+// case has no RoutePath — there is nothing to connect to.
+var ErrMissingWebSocketURL = errors.New("testgen: test case has no WebSocket URL (RoutePath)")
+
 // TestCaseInput is the subset of planning.TestCase generation needs.
 // Defined locally (rather than importing internal/planning) so this
 // package has zero dependency on the planning domain — it only needs
@@ -26,6 +30,12 @@ type TestCaseInput struct {
 	Title       string
 	RoutePath   string
 	RouteMethod string // "" for a browser page
+	// Framework selects the generator. "" and "api" both mean Playwright
+	// (dispatched below by RouteMethod, as before Phase 11); "websocket"
+	// generates a plain Node.js WebSocket smoke-test script instead —
+	// RoutePath for that framework already holds a full "ws://"/"wss://"
+	// URL (see routes.Route's doc comment), never joined with baseURL.
+	Framework string
 }
 
 var apiMethodFuncs = map[string]string{
@@ -33,8 +43,13 @@ var apiMethodFuncs = map[string]string{
 }
 
 // GenerateSpec returns a filename and file content for tc, targeting
-// baseURL (e.g. "http://localhost:3000").
+// baseURL (e.g. "http://localhost:3000"). baseURL is ignored for the
+// "websocket" framework, which targets tc.RoutePath directly.
 func GenerateSpec(tc TestCaseInput, baseURL string) (filename, content string, err error) {
+	if tc.Framework == "websocket" {
+		return generateWebSocketSpec(tc)
+	}
+
 	if baseURL == "" {
 		return "", "", ErrMissingBaseURL
 	}
@@ -83,6 +98,71 @@ test('%s', async ({ request }) => {
 });
 `, title, fn, escapeJSString(url))
 	return filename, content, nil
+}
+
+// generateWebSocketSpec returns a plain Node.js script (no Playwright,
+// no npm project of its own — just the globally-installed "ws" package,
+// see deploy/docker/Dockerfile.runner-websocket) that connects to
+// tc.RoutePath and requires at least one message within a timeout. This
+// is a smoke-level check: it does not assert message content/schema,
+// since no AI-derived expectation is available — the same honest
+// ceiling as this package's Playwright generators.
+func generateWebSocketSpec(tc TestCaseInput) (filename, content string, err error) {
+	if tc.RoutePath == "" {
+		return "", "", ErrMissingWebSocketURL
+	}
+	filename = fmt.Sprintf("generated-%s.test.js", sanitizeID(tc.ID))
+	content = fmt.Sprintf(`// %s
+// Generated deterministically from a suggested test case — no AI
+// involved. This is a smoke-level check: the endpoint must accept a
+// WebSocket connection and send at least one message within the
+// timeout. It does not assert message content/schema, since no
+// AI-derived expectation is available.
+const WebSocket = require('ws');
+
+const url = %q;
+const timeoutMs = 5000;
+let settled = false;
+
+const ws = new WebSocket(url);
+
+const timer = setTimeout(() => {
+  if (settled) return;
+  settled = true;
+  console.error('FAIL: no message received from ' + url + ' within ' + timeoutMs + 'ms');
+  ws.terminate();
+  process.exit(1);
+}, timeoutMs);
+
+ws.on('open', () => {
+  console.log('connected to ' + url);
+});
+
+ws.on('message', (data) => {
+  if (settled) return;
+  settled = true;
+  clearTimeout(timer);
+  console.log('PASS: received message: ' + data.toString().slice(0, 200));
+  ws.close();
+  process.exit(0);
+});
+
+ws.on('error', (err) => {
+  if (settled) return;
+  settled = true;
+  clearTimeout(timer);
+  console.error('FAIL: connection error: ' + err.message);
+  process.exit(1);
+});
+`, sanitizeComment(tc.Title), tc.RoutePath)
+	return filename, content, nil
+}
+
+// sanitizeComment strips newlines so an arbitrary test case title can
+// never break out of a "//" line comment.
+func sanitizeComment(s string) string {
+	s = strings.ReplaceAll(s, "\r", " ")
+	return strings.ReplaceAll(s, "\n", " ")
 }
 
 func escapeJSString(s string) string {

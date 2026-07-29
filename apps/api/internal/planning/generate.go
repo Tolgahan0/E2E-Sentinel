@@ -77,6 +77,12 @@ func testCasesForRoute(r routes.Route) []TestCase {
 			fmt.Sprintf("Page: %s renders without error", r.Path),
 			fmt.Sprintf("Verify %s renders without a console/page error.", r.Path),
 			[]string{"Open " + r.Path}, []string{"Page renders", "No uncaught console error"})}
+
+	case routes.KindWebSocket:
+		return []TestCase{tc(r, CategoryConnectivity, PriorityP2, confidence, false,
+			fmt.Sprintf("Connectivity: %s accepts a connection", r.Path),
+			fmt.Sprintf("Verify a WebSocket connection to %s succeeds and yields at least one message within a timeout.", r.Path),
+			[]string{"Open a WebSocket connection to " + r.Path}, []string{"Connection is accepted", "At least one message is received before the timeout"})}
 	}
 	return nil
 }
@@ -131,6 +137,9 @@ func routeLabel(r routes.Route) string {
 }
 
 func frameworkFor(r routes.Route) string {
+	if r.Kind == routes.KindWebSocket {
+		return "websocket"
+	}
 	if r.Method == "" {
 		return "playwright"
 	}

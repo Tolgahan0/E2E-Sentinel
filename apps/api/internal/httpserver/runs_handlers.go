@@ -61,14 +61,33 @@ func toArtifactResponse(a artifacts.Artifact) artifactResponse {
 // spec §11.3's live-status expectation. Cancellation (spec §11.1) is
 // handled by POST /runs/{id}/cancel, matched to the running container by
 // its deterministic name — no in-memory state is needed here.
+// runnerFor picks the runner for a test case's framework. "websocket"
+// uses WebSocketRunner; everything else (the pre-Phase-11 "playwright"/
+// "api" values, and any future default) uses Runner — a two-field
+// selection, not a generic registry, to stay consistent with every
+// other capability field on Dependencies.
+func runnerFor(deps Dependencies, framework string) runs.Runner {
+	if framework == "websocket" {
+		return deps.WebSocketRunner
+	}
+	return deps.Runner
+}
+
+// runnerByName finds the configured runner whose Name() matches
+// runnerType (a TestRun's stored RunnerType) — used where only the run
+// itself, not its test case's framework, is available.
+func runnerByName(deps Dependencies, runnerType string) runs.Runner {
+	for _, r := range []runs.Runner{deps.Runner, deps.WebSocketRunner} {
+		if r != nil && r.Name() == runnerType {
+			return r
+		}
+	}
+	return nil
+}
+
 func handleRunTest(deps Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		testID := chi.URLParam(r, "testID")
-
-		if deps.Runner == nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "runner_not_configured"})
-			return
-		}
 
 		tc, err := deps.Planning.Get(r.Context(), testID)
 		if errors.Is(err, planning.ErrNotFound) {
@@ -80,34 +99,47 @@ func handleRunTest(deps Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return
 		}
+
+		runner := runnerFor(deps, tc.Framework)
+		if runner == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "runner_not_configured"})
+			return
+		}
+
 		if tc.ApprovalStatus != planning.ApprovalApproved {
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "test_not_approved", "detail": "only an approved test case can be run"})
 			return
 		}
 
-		envs, err := deps.Environments.ListByProject(r.Context(), tc.ProjectID)
-		if err != nil {
-			deps.Logger.Error().Err(err).Msg("listing environments for run failed")
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
-			return
-		}
+		// A WebSocket test's RoutePath is already a full "ws://"/"wss://"
+		// URL (see routes.Route's doc comment) — it needs no environment
+		// base_url to join against, unlike every Playwright-based test.
+		isWebSocket := tc.Framework == "websocket"
 		var baseURL string
-		for _, env := range envs {
-			if env.BaseURL != "" {
-				baseURL = env.BaseURL
-				break
+		if !isWebSocket {
+			envs, err := deps.Environments.ListByProject(r.Context(), tc.ProjectID)
+			if err != nil {
+				deps.Logger.Error().Err(err).Msg("listing environments for run failed")
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+				return
 			}
-		}
-		if baseURL == "" {
-			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
-				"error": "environment_base_url_not_set", "detail": "set an environment's base_url before running a test",
-			})
-			return
+			for _, env := range envs {
+				if env.BaseURL != "" {
+					baseURL = env.BaseURL
+					break
+				}
+			}
+			if baseURL == "" {
+				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
+					"error": "environment_base_url_not_set", "detail": "set an environment's base_url before running a test",
+				})
+				return
+			}
 		}
 
 		run, err := deps.Runs.Create(r.Context(), runs.TestRun{
 			ProjectID: tc.ProjectID, TestCaseID: tc.ID, Status: runs.StatusQueued,
-			RunnerType: deps.Runner.Name(), TriggerType: "manual", TriggeredBy: "user",
+			RunnerType: runner.Name(), TriggerType: "manual", TriggeredBy: "user",
 		})
 		if err != nil {
 			deps.Logger.Error().Err(err).Msg("creating test run failed")
@@ -116,7 +148,7 @@ func handleRunTest(deps Dependencies) http.HandlerFunc {
 		}
 
 		filename, content, err := testgen.GenerateSpec(testgen.TestCaseInput{
-			ID: tc.ID, Title: tc.Title, RoutePath: tc.RoutePath, RouteMethod: tc.RouteMethod,
+			ID: tc.ID, Title: tc.Title, RoutePath: tc.RoutePath, RouteMethod: tc.RouteMethod, Framework: tc.Framework,
 		}, baseURL)
 		if err != nil {
 			_, _ = deps.Runs.UpdateStatus(r.Context(), run.ID, runs.StatusError, nil, err.Error(), true)
@@ -131,15 +163,18 @@ func handleRunTest(deps Dependencies) http.HandlerFunc {
 			deps.Logger.Error().Err(err).Msg("recording test_run.started audit event failed")
 		}
 
-		go executeRunAsync(deps, run.ID, runs.RunInput{RunID: run.ID, SpecFilename: filename, SpecContent: content})
+		go executeRunAsync(deps, runner, run.ID, runs.RunInput{RunID: run.ID, SpecFilename: filename, SpecContent: content})
 
 		writeJSON(w, http.StatusAccepted, toTestRunResponse(run))
 	}
 }
 
 // executeRunAsync runs entirely on a background context: the triggering
-// HTTP request has already returned by the time this typically finishes.
-func executeRunAsync(deps Dependencies, runID string, input runs.RunInput) {
+// HTTP request has already returned by the time this typically
+// finishes. runner is the one selected by handleRunTest for this test
+// case's framework (runnerFor) — passed explicitly rather than read
+// from deps.Runner, since which field that is varies by framework.
+func executeRunAsync(deps Dependencies, runner runs.Runner, runID string, input runs.RunInput) {
 	ctx := context.Background()
 	logger := deps.Logger
 
@@ -148,14 +183,14 @@ func executeRunAsync(deps Dependencies, runID string, input runs.RunInput) {
 	}
 	deps.Metrics.ActiveTestRuns.Inc(nil)
 
-	result, err := deps.Runner.Execute(ctx, input)
+	result, err := runner.Execute(ctx, input)
 	if err != nil {
 		logger.Error().Err(err).Str("run_id", runID).Msg("runner execution failed")
 		// Execute may have already created the workspace directory
 		// (writing the spec file) before failing to create/start the
 		// container — clean it up here too, not just on the success
 		// path below, or it leaks on every infra-level failure.
-		if err := deps.Runner.Cleanup(ctx, runID); err != nil {
+		if err := runner.Cleanup(ctx, runID); err != nil {
 			logger.Warn().Err(err).Str("run_id", runID).Msg("runner cleanup after execution failure failed")
 		}
 		// Failure correlation (and the workspace cleanup above) runs
@@ -181,7 +216,7 @@ func executeRunAsync(deps Dependencies, runID string, input runs.RunInput) {
 	current, err := deps.Runs.Get(ctx, runID)
 	if err == nil && current.Status == runs.StatusCancelled {
 		saveRunArtifacts(ctx, deps, runID, result)
-		_ = deps.Runner.Cleanup(ctx, runID)
+		_ = runner.Cleanup(ctx, runID)
 		deps.Metrics.ActiveTestRuns.Dec(nil)
 		deps.Metrics.TestRunsTotal.Inc(map[string]string{"status": runs.StatusCancelled})
 		return
@@ -194,7 +229,7 @@ func executeRunAsync(deps Dependencies, runID string, input runs.RunInput) {
 
 	artifactIDs := saveRunArtifacts(ctx, deps, runID, result)
 
-	if artifactFiles, err := deps.Runner.CollectArtifacts(ctx, runID); err != nil {
+	if artifactFiles, err := runner.CollectArtifacts(ctx, runID); err != nil {
 		logger.Warn().Err(err).Str("run_id", runID).Msg("collecting artifacts failed")
 	} else {
 		retentionUntil := time.Now().Add(artifacts.RetentionFor(status))
@@ -207,7 +242,7 @@ func executeRunAsync(deps Dependencies, runID string, input runs.RunInput) {
 		}
 	}
 
-	if err := deps.Runner.Cleanup(ctx, runID); err != nil {
+	if err := runner.Cleanup(ctx, runID); err != nil {
 		logger.Warn().Err(err).Str("run_id", runID).Msg("runner cleanup failed")
 	}
 
@@ -313,8 +348,11 @@ func handleCancelRun(deps Dependencies) http.HandlerFunc {
 			return
 		}
 
-		if deps.Runner != nil {
-			if err := deps.Runner.Cancel(r.Context(), runID); err != nil {
+		// run.RunnerType (set at Create time from runner.Name()) identifies
+		// which runner started this run — needed here since a cancel
+		// request doesn't carry the test case's framework, only the run.
+		if cancelRunner := runnerByName(deps, run.RunnerType); cancelRunner != nil {
+			if err := cancelRunner.Cancel(r.Context(), runID); err != nil {
 				deps.Logger.Warn().Err(err).Str("run_id", runID).Msg("stopping runner container failed")
 			}
 		}

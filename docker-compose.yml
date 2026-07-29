@@ -151,6 +151,17 @@ services:
     image: e2e-sentinel-playwright-runner:latest
     profiles: ["build-only"]
 
+  # Same build-only pattern as playwright-runner, for the Phase 11
+  # WebSocket adapter (spec §25) — a much smaller image (plain Node,
+  # no browser stack) since a WebSocket smoke test needs neither
+  # Chromium/Firefox/WebKit nor Playwright itself.
+  websocket-runner:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.runner-websocket
+    image: e2e-sentinel-websocket-runner:latest
+    profiles: ["build-only"]
+
   sentinel-web:
     build:
       context: .

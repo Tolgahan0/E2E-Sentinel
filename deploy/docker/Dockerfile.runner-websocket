@@ -1,0 +1,27 @@
+# Disposable WebSocket smoke-test runner image (spec §25 Phase 11
+# "WebSocket adapter"). Never pulled at runtime by sentinel-api — built
+# ahead of time (`make up` / `docker compose build`) and referenced by a
+# fixed tag (SENTINEL_WEBSOCKET_RUNNER_IMAGE), same as the Playwright
+# runner image. Deliberately NOT based on the Playwright image: a
+# WebSocket smoke test needs no browser stack at all, so a plain Node
+# Alpine base keeps this image an order of magnitude smaller.
+FROM node:20-alpine
+
+# "ws" is installed globally so a bind-mounted workspace containing only
+# a generated *.test.js file (no package.json/node_modules of its own)
+# can still `require('ws')` — same NODE_PATH trick as
+# Dockerfile.runner-playwright's global @playwright/test install. Note
+# this Alpine-based image's npm global prefix (/usr/local) differs from
+# the Playwright image's Debian-based one (/usr/lib) — verified with
+# `npm root -g` rather than assumed.
+RUN npm install -g ws@8
+ENV NODE_PATH=/usr/local/lib/node_modules
+
+WORKDIR /workspace
+
+# The official node image ships a non-root "node" user; never run
+# generated test code as root (spec §11.1).
+USER node
+
+ENTRYPOINT []
+CMD ["node"]

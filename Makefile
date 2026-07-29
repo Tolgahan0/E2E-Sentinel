@@ -21,7 +21,7 @@ build:
 
 up:
 	@mkdir -p runner-workspaces workspace
-	SENTINEL_RUNNER_HOST_WORKSPACE_DIR="$$(pwd)/runner-workspaces" docker compose build playwright-runner
+	SENTINEL_RUNNER_HOST_WORKSPACE_DIR="$$(pwd)/runner-workspaces" docker compose build playwright-runner websocket-runner
 	SENTINEL_RUNNER_HOST_WORKSPACE_DIR="$$(pwd)/runner-workspaces" docker compose up -d --build
 
 down:

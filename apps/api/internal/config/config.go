@@ -52,6 +52,12 @@ type Config struct {
 	// (built via `make up` / `docker compose build`).
 	RunnerImage string
 
+	// WebSocketRunnerImage is the pre-built WebSocket smoke-test runner
+	// image tag (spec §25 Phase 11 "WebSocket adapter") — plain Node.js
+	// plus the "ws" package, no browser stack. Same never-pulled-at-
+	// runtime rule as RunnerImage.
+	WebSocketRunnerImage string
+
 	// RunnerWorkspaceContainerDir is where sentinel-api itself writes
 	// generated spec files, from its own container's point of view.
 	RunnerWorkspaceContainerDir string
@@ -140,6 +146,7 @@ func Load(getenv func(string) string) (Config, error) {
 		ShutdownTimeout:             10 * time.Second,
 		DockerSocketPath:            firstNonEmpty(getenv("SENTINEL_DOCKER_SOCKET"), "/var/run/docker.sock"),
 		RunnerImage:                 firstNonEmpty(getenv("SENTINEL_RUNNER_IMAGE"), "e2e-sentinel-playwright-runner:latest"),
+		WebSocketRunnerImage:        firstNonEmpty(getenv("SENTINEL_WEBSOCKET_RUNNER_IMAGE"), "e2e-sentinel-websocket-runner:latest"),
 		RunnerWorkspaceContainerDir: firstNonEmpty(getenv("SENTINEL_RUNNER_WORKSPACE_DIR"), "/runner-workspaces"),
 		RunnerWorkspaceHostDir:      getenv("SENTINEL_RUNNER_HOST_WORKSPACE_DIR"),
 		RunnerMemoryBytes:           1 << 30, // 1 GiB

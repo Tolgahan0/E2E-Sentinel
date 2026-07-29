@@ -18,6 +18,7 @@ const (
 	CategoryErrorHandling   = "error_handling"
 	CategorySmoke           = "smoke"
 	CategoryCriticalJourney = "critical_user_journey"
+	CategoryConnectivity    = "connectivity"
 )
 
 // Statuses (spec §6.6).

@@ -113,6 +113,29 @@ func TestGeneratePlan_HealthRouteIsLowPrioritySmoke(t *testing.T) {
 	}
 }
 
+func TestGeneratePlan_WebSocketRouteProducesConnectivityTestWithWebSocketFramework(t *testing.T) {
+	route := routes.Route{Path: "ws://localhost:8080/socket", Kind: routes.KindWebSocket, Confidence: routes.ConfidenceMedium}
+	cases := GeneratePlan([]routes.Route{route})
+
+	connectivity := findByCategory(cases, CategoryConnectivity)
+	if len(connectivity) != 1 {
+		t.Fatalf("expected 1 connectivity test case, got %+v", cases)
+	}
+	tc := connectivity[0]
+	if tc.Framework != "websocket" {
+		t.Errorf("Framework = %q, want websocket", tc.Framework)
+	}
+	if tc.RoutePath != "ws://localhost:8080/socket" {
+		t.Errorf("RoutePath = %q", tc.RoutePath)
+	}
+	if tc.IsMutating {
+		t.Error("a connectivity smoke test must not be marked mutating")
+	}
+	if !tc.IsProductionSafe {
+		t.Error("a non-mutating connectivity test should be production-safe")
+	}
+}
+
 func TestGeneratePlan_SiblingTestCasesForSameRouteHaveDistinctNaturalKeys(t *testing.T) {
 	login := routes.Route{Method: "POST", Path: "/api/v1/auth/login", Kind: routes.KindAuth, Confidence: routes.ConfidenceHigh}
 	cases := GeneratePlan([]routes.Route{login})

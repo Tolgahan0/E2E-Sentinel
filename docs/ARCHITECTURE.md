@@ -447,6 +447,37 @@ See [docs/KUBERNETES_DISCOVERY.md](KUBERNETES_DISCOVERY.md) for the full
 detection list and the read-only ClusterRole example
 (`deploy/k8s/read-only-clusterrole.yaml`).
 
+## Domain flow: the WebSocket adapter (Phase 11)
+
+The one Phase 11 tool actually implemented — see
+[docs/TEST_ADAPTERS.md](TEST_ADAPTERS.md) for why the other seven
+(Maestro/Detox/k6/ZAP/Nuclei/Schemathesis/Pact/Kafka) are documented as
+deferred rather than built:
+
+```text
+repository scan finds a "ws://"/"wss://" URL literal in any scanned
+source file (JS/TS/Go/Python)
+  -> routes.Route{Kind: KindWebSocket, Path: <the full URL>}
+  -> graph.Build passes it through unchanged (NodeType is just r.Kind)
+
+planning.GeneratePlan
+  -> KindWebSocket -> one CategoryConnectivity TestCase,
+     Framework: "websocket", RoutePath: <the full URL>
+
+POST /tests/{id}/run
+  -> runnerFor(tc.Framework) picks deps.WebSocketRunner, not deps.Runner
+  -> "websocket" framework skips the environment base_url requirement
+     entirely (RoutePath is already a complete URL)
+  -> testgen.GenerateSpec dispatches on Framework -> a plain Node.js
+     script (globally-installed "ws" package, no Playwright)
+  -> DockerWebSocketRunner.Execute: same disposable-container isolation
+     as DockerPlaywrightRunner, pointed at a much smaller image
+     (deploy/docker/Dockerfile.runner-websocket: node:20-alpine + ws,
+     no browser stack)
+  -> pass/fail is the script's own process.exit(0)/(1) — connected and
+     received a message within 5s, or didn't
+```
+
 ## Configuration
 
 All configuration is environment-variable based (`internal/config`), with
@@ -478,5 +509,12 @@ Per spec §2.2 and §34, there is still no code path that:
 - traces a request across packages — `internal/metrics` covers counters/
   gauges (spec §22 "Metrics"); OpenTelemetry distributed tracing (spec
   §22 "Traces") is a documented ceiling, not attempted.
+- integrates Maestro, Detox, k6, ZAP, Nuclei, Schemathesis, Pact, or
+  Kafka/event-stream testing (spec §25 Phase 11) — the WebSocket adapter
+  is the one Phase 11 tool actually implemented; see
+  [docs/TEST_ADAPTERS.md](TEST_ADAPTERS.md) for exactly why each of the
+  other seven is a bigger undertaking than a drop-in `Runner`
+  implementation (a new external runtime, a different integration shape,
+  or new `TestCase` fields a smoke-test model doesn't have).
 
 These are reserved extension points for later phases.
