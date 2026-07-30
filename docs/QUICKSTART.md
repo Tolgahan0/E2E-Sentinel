@@ -3,15 +3,51 @@
 No AI coding assistant required — this is a plain shell script anyone
 can run.
 
+There are two ways to get the E2E Sentinel stack itself running. Pick
+one, then `onboard.sh` (below) is identical either way.
+
+## Running a release (no repo checkout)
+
+If you just want to *use* E2E Sentinel — not develop it — you don't
+need to clone this repository or have Go/Node installed. Every
+component is published as a pre-built image on each release tag; the
+installer downloads only what's needed to run them:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Tolgahan0/E2E-Sentinel/main/install.sh | bash
+```
+
+This creates `./e2e-sentinel/` (override with `SENTINEL_INSTALL_DIR`),
+writes a `.env` with a generated `POSTGRES_PASSWORD`, pulls the images
+(`SENTINEL_VERSION` picks a tag; defaults to the latest GitHub release,
+or `main` if none exist yet), and starts the stack via
+`docker-compose.release.yml`. When it's done, the panel is at
+`http://localhost:9090` and `./e2e-sentinel/scripts/onboard.sh` is
+ready to use exactly as described below.
+
+To stop it: `cd e2e-sentinel && docker compose -f docker-compose.release.yml down`
+(add `-v` only if you also want to delete the Postgres data).
+
+## Running from source (for developing E2E Sentinel itself)
+
 ```bash
 git clone <this-repo>
 cd e2e-sentinel
+make up
+```
 
+## Now onboard a project
+
+Same command either way — `onboard.sh` detects which of the two setups
+above it's sitting next to and brings the stack up itself if it isn't
+already running:
+
+```bash
 ./scripts/onboard.sh https://github.com/you/your-app
 # or, for a repo you already have checked out locally:
 ./scripts/onboard.sh ../your-app
 
-# equivalently, via make:
+# equivalently, via make (source checkout only):
 make onboard SOURCE=https://github.com/you/your-app
 make onboard SOURCE=../your-app NAME="Your App"
 ```
@@ -20,8 +56,10 @@ make onboard SOURCE=../your-app NAME="Your App"
 
 1. Creates `.env` (with a generated `POSTGRES_PASSWORD`) if you don't
    have one yet.
-2. Brings up the Docker Compose stack with `make up`, if it isn't
-   already reachable at `http://localhost:8080`.
+2. Brings up the Docker Compose stack if it isn't already reachable at
+   `http://localhost:8080` — `make up` in a source checkout, or
+   `docker compose -f docker-compose.release.yml up -d` in a release
+   install.
 3. Gets your repository into `./workspace`, since that's the directory
    `sentinel-api` can actually read inside its container:
    - a **git URL** is cloned with `git clone --depth 1` (re-running the

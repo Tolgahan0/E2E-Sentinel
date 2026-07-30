@@ -66,9 +66,25 @@ if [ ! -f .env ]; then
 fi
 
 # --- 2. bring the stack up if it isn't reachable ------------------------
+# Two contexts this script runs in: a full repository checkout (has
+# Makefile + docker-compose.yml, builds every image from source) or a
+# release install (install.sh — only docker-compose.release.yml, pulls
+# pre-built images, no Makefile at all). Bringing the stack up must use
+# whichever is actually present.
 if ! curl -sf "${SENTINEL_URL}/health" >/dev/null 2>&1; then
-  echo "==> Stack not reachable at ${SENTINEL_URL} — running 'make up' (the first run can take a few minutes)"
-  make -C "$REPO_ROOT" up
+  if [ -f "$REPO_ROOT/Makefile" ]; then
+    echo "==> Stack not reachable at ${SENTINEL_URL} — running 'make up' (the first run can take a few minutes)"
+    make -C "$REPO_ROOT" up
+  elif [ -f "$REPO_ROOT/docker-compose.release.yml" ]; then
+    echo "==> Stack not reachable at ${SENTINEL_URL} — pulling and starting the release stack"
+    mkdir -p "$REPO_ROOT/runner-workspaces"
+    export SENTINEL_RUNNER_HOST_WORKSPACE_DIR="$REPO_ROOT/runner-workspaces"
+    (cd "$REPO_ROOT" && docker compose -f docker-compose.release.yml pull && docker compose -f docker-compose.release.yml up -d)
+  else
+    echo "!! Neither Makefile nor docker-compose.release.yml found next to this script — can't start the stack automatically."
+    echo "   Start it yourself, then re-run this script."
+    exit 1
+  fi
   echo "==> Waiting for sentinel-api to become healthy..."
   ready=false
   for _ in $(seq 1 60); do

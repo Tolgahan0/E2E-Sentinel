@@ -47,7 +47,18 @@ before it touches your real repository). Everything else is automatic.
 
 ## Getting started
 
+**Just want to run it, not develop it?** No repo checkout, no Go/Node
+toolchain — every image is published pre-built on each release tag:
+
 ```bash
+curl -fsSL https://raw.githubusercontent.com/Tolgahan0/E2E-Sentinel/main/install.sh | bash
+open http://localhost:9090  # the panel
+```
+
+**Developing E2E Sentinel itself?** Build from source instead:
+
+```bash
+git clone https://github.com/Tolgahan0/E2E-Sentinel.git && cd E2E-Sentinel
 cp .env.example .env        # set a real POSTGRES_PASSWORD
 make up                     # builds the Playwright runner image, then docker compose up -d --build
 open http://localhost:9090  # the panel
@@ -62,6 +73,9 @@ for what that means and why.
 ```bash
 make down        # stop the stack
 ```
+
+Either way, see [docs/QUICKSTART.md](docs/QUICKSTART.md) for the full
+details of both install paths.
 
 ### Add your own project in one command
 

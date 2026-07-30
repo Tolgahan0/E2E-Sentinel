@@ -1,0 +1,58 @@
+name: Release
+
+# Builds and publishes every image E2E Sentinel needs to
+# ghcr.io/<owner>/e2e-sentinel-<component> on each version tag push
+# (v1.2.3) — the counterpart to docker-compose.release.yml/install.sh,
+# which pull exactly these images. Pushing a tag is the only trigger;
+# nothing publishes on an ordinary commit to main.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: e2e-sentinel-api
+            dockerfile: deploy/docker/Dockerfile.api
+          - component: e2e-sentinel-web
+            dockerfile: deploy/docker/Dockerfile.web
+          - component: e2e-sentinel-playwright-runner
+            dockerfile: deploy/docker/Dockerfile.runner-playwright
+          - component: e2e-sentinel-websocket-runner
+            dockerfile: deploy/docker/Dockerfile.runner-websocket
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lowercase image owner (registry names must be lowercase)
+        id: vars
+        run: echo "owner_lc=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push ${{ matrix.component }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ steps.vars.outputs.owner_lc }}/${{ matrix.component }}:${{ github.ref_name }}
+            ghcr.io/${{ steps.vars.outputs.owner_lc }}/${{ matrix.component }}:latest

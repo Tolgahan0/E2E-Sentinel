@@ -11,6 +11,12 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /out/sentinel ./cmd/sentinel
 FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
 COPY --from=build /out/sentinel /app/sentinel
+# Baked in so a published image is self-contained (a release install has
+# no local repo checkout to bind-mount ./migrations from — see
+# docker-compose.release.yml). docker-compose.yml's own bind mount at
+# this same path still takes precedence for local development, so
+# editing a migration file there is picked up without a rebuild.
+COPY migrations /app/migrations
 
 USER nonroot:nonroot
 EXPOSE 8080
