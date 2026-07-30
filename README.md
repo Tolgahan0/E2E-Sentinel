@@ -1,5 +1,7 @@
 # E2E Sentinel
 
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+
 E2E Sentinel is a self-hosted, AI-assisted quality engineering platform. It
 discovers a repository and its runtime architecture, produces a reviewable
 test inventory and risk-based E2E test plan, generates and executes tests
@@ -410,3 +412,7 @@ domain-flow sections walk through the exact code path.
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+[GPL-3.0](LICENSE).
