@@ -245,8 +245,8 @@ async function loadPipelineStats(projects: Project[]): Promise<PipelineStats> {
 // regardless of the rendered size (see .sentinel-flowmap in globals.css).
 const FLOW_W = 1000;
 const FLOW_H = 380;
-const STAGE_ANCHOR_X = 195;
-const STAGE_Y: [number, number, number, number, number, number] = [32, 95, 158, 221, 284, 347];
+const STAGE_ANCHOR_X = 218;
+const STAGE_Y: [number, number, number, number, number, number] = [55, 111, 167, 223, 279, 335];
 const HUB_X = 340;
 const HUB_Y = 190;
 const HUB_R = 62;
@@ -254,7 +254,7 @@ const CLUSTER_X = 660;
 const CLUSTER_Y = 190;
 const CLUSTER_R = 96;
 const CLUSTER_CENTER_R = 44;
-const ISSUE_ANCHOR_X = 805;
+const ISSUE_ANCHOR_X = 785;
 const ISSUE_Y: [number, number, number] = [108, 190, 272];
 
 function pct(x: number, total: number) {
@@ -278,19 +278,6 @@ function scatterPoint(index: number, total: number, minR: number, maxR: number) 
   const frac = total <= 1 ? 1 : index / (total - 1);
   const radius = minR + frac * (maxR - minR);
   return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
-}
-
-function usePrefersReducedMotion() {
-  const [reduced, setReduced] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  );
-  useEffect(() => {
-    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const onChange = (e: MediaQueryListEvent) => setReduced(e.matches);
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
-  }, []);
-  return reduced;
 }
 
 interface FlowNode {
@@ -330,8 +317,6 @@ function FlowMapNode({ node, y, side }: { node: FlowNode; y: number; side: 'left
 }
 
 function FlowMap({ stats, loaded }: { stats: PipelineStats; loaded: boolean }) {
-  const reducedMotion = usePrefersReducedMotion();
-
   if (!loaded) {
     return (
       <div className="sentinel-card">
@@ -458,64 +443,51 @@ function FlowMap({ stats, loaded }: { stats: PipelineStats; loaded: boolean }) {
       <div className="sentinel-flowmap-scroll">
         <div className="sentinel-flowmap">
           <svg viewBox={`0 0 ${FLOW_W} ${FLOW_H}`} className="sentinel-flowmap-svg" aria-hidden="true">
-            {stageNodes.map((n, i) => (
-              <path
-                key={`track-stage-${n.key}`}
-                id={`sentinel-flow-stage-${i}`}
-                d={flowCurve(STAGE_ANCHOR_X, STAGE_Y[i]!, HUB_X - HUB_R + 4, HUB_Y)}
-                className="sentinel-flowmap-track"
-                style={{ '--node-color': n.color } as CSSProperties}
-              />
-            ))}
-            {[-16, 0, 16].map((offset, i) => (
-              <path
-                key={`track-hub-cluster-${i}`}
-                id={`sentinel-flow-hubcluster-${i}`}
-                d={flowCurve(HUB_X + HUB_R - 4, HUB_Y + offset * 0.4, CLUSTER_X - CLUSTER_R + 4, HUB_Y + offset)}
-                className="sentinel-flowmap-track"
-                style={{ '--node-color': 'var(--sentinel-accent)' } as CSSProperties}
-              />
-            ))}
-            {issueNodes.map((n, i) => (
-              <path
-                key={`track-issue-${n.key}`}
-                id={`sentinel-flow-issue-${i}`}
-                d={flowCurve(CLUSTER_X + CLUSTER_R - 4, CLUSTER_Y, ISSUE_ANCHOR_X, ISSUE_Y[i]!)}
-                className="sentinel-flowmap-track"
-                style={{ '--node-color': n.color } as CSSProperties}
-              />
-            ))}
-
-            {!reducedMotion &&
-              stageNodes.map((n, i) => (
-                <circle key={`dot-stage-${n.key}`} r="4" fill={n.color} className="sentinel-flowmap-dot" style={{ color: n.color }}>
-                  <animateMotion dur={`${2.6 + i * 0.2}s`} begin={`${i * 0.3}s`} repeatCount="indefinite">
-                    <mpath href={`#sentinel-flow-stage-${i}`} />
-                  </animateMotion>
-                </circle>
-              ))}
-            {!reducedMotion &&
-              [0, 1, 2].map((i) => (
-                <circle
-                  key={`dot-hubcluster-${i}`}
-                  r="4"
-                  fill="var(--sentinel-accent)"
-                  className="sentinel-flowmap-dot"
-                  style={{ color: 'var(--sentinel-accent)' }}
-                >
-                  <animateMotion dur={`${1.9 + i * 0.25}s`} begin={`${i * 0.4}s`} repeatCount="indefinite">
-                    <mpath href={`#sentinel-flow-hubcluster-${i}`} />
-                  </animateMotion>
-                </circle>
-              ))}
-            {!reducedMotion &&
-              issueNodes.map((n, i) => (
-                <circle key={`dot-issue-${n.key}`} r="4" fill={n.color} className="sentinel-flowmap-dot" style={{ color: n.color }}>
-                  <animateMotion dur={`${2.2 + i * 0.25}s`} begin={`${i * 0.35}s`} repeatCount="indefinite">
-                    <mpath href={`#sentinel-flow-issue-${i}`} />
-                  </animateMotion>
-                </circle>
-              ))}
+            {stageNodes.map((n, i) => {
+              const d = flowCurve(STAGE_ANCHOR_X, STAGE_Y[i]!, HUB_X - HUB_R + 4, HUB_Y);
+              return (
+                <g key={`track-stage-${n.key}`} style={{ '--node-color': n.color } as CSSProperties}>
+                  <path d={d} pathLength={100} className="sentinel-flowmap-track-glow" />
+                  <path d={d} pathLength={100} className="sentinel-flowmap-track" />
+                  <path
+                    d={d}
+                    pathLength={100}
+                    className="sentinel-flowmap-track-flow"
+                    style={{ animationDelay: `${i * -0.4}s` } as CSSProperties}
+                  />
+                </g>
+              );
+            })}
+            {[-16, 0, 16].map((offset, i) => {
+              const d = flowCurve(HUB_X + HUB_R - 4, HUB_Y + offset * 0.4, CLUSTER_X - CLUSTER_R + 4, HUB_Y + offset);
+              return (
+                <g key={`track-hub-cluster-${i}`} style={{ '--node-color': 'var(--sentinel-accent)' } as CSSProperties}>
+                  <path d={d} pathLength={100} className="sentinel-flowmap-track-glow" />
+                  <path d={d} pathLength={100} className="sentinel-flowmap-track" />
+                  <path
+                    d={d}
+                    pathLength={100}
+                    className="sentinel-flowmap-track-flow"
+                    style={{ animationDelay: `${i * -0.5}s` } as CSSProperties}
+                  />
+                </g>
+              );
+            })}
+            {issueNodes.map((n, i) => {
+              const d = flowCurve(CLUSTER_X + CLUSTER_R - 4, CLUSTER_Y, ISSUE_ANCHOR_X, ISSUE_Y[i]!);
+              return (
+                <g key={`track-issue-${n.key}`} style={{ '--node-color': n.color } as CSSProperties}>
+                  <path d={d} pathLength={100} className="sentinel-flowmap-track-glow" />
+                  <path d={d} pathLength={100} className="sentinel-flowmap-track" />
+                  <path
+                    d={d}
+                    pathLength={100}
+                    className="sentinel-flowmap-track-flow"
+                    style={{ animationDelay: `${i * -0.45}s` } as CSSProperties}
+                  />
+                </g>
+              );
+            })}
 
             <circle cx={HUB_X} cy={HUB_Y} r={HUB_R} className="sentinel-flowmap-hub-circle" />
             <circle cx={CLUSTER_X} cy={CLUSTER_Y} r={CLUSTER_R + 6} className="sentinel-flowmap-hub-circle" style={{ fillOpacity: 0.15 }} />
