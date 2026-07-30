@@ -13,7 +13,9 @@
   --sentinel-danger: #e05a4e;
   --sentinel-danger-rgb: 224, 90, 78;
   --sentinel-flow-discover: #22d3ee;
+  --sentinel-flow-discover-rgb: 34, 211, 238;
   --sentinel-flow-plan: #a78bfa;
+  --sentinel-flow-plan-rgb: 167, 139, 250;
 }
 
 @media (prefers-color-scheme: light) {
@@ -26,7 +28,9 @@
     --sentinel-accent: #2f5fd0;
     --sentinel-accent-rgb: 47, 95, 208;
     --sentinel-flow-discover: #0e8fa8;
+    --sentinel-flow-discover-rgb: 14, 143, 168;
     --sentinel-flow-plan: #6d3fd1;
+    --sentinel-flow-plan-rgb: 109, 63, 209;
   }
 }
 
@@ -166,11 +170,20 @@ a {
 
 .sentinel-insights-title {
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
   font-size: 0.78rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--sentinel-muted);
+}
+
+.sentinel-insights-title-icon {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
 }
 
 .sentinel-insights-viewall {
@@ -348,8 +361,9 @@ a {
 .sentinel-flowmap-track {
   fill: none;
   stroke: var(--node-color, var(--sentinel-border));
-  stroke-width: 2;
-  opacity: 0.55;
+  stroke-width: 2.5;
+  opacity: 0.7;
+  filter: drop-shadow(0 0 4px var(--node-color, transparent));
 }
 
 .sentinel-flowmap-dot {
@@ -360,7 +374,7 @@ a {
   fill: var(--sentinel-surface);
   stroke: var(--sentinel-border);
   stroke-width: 1.5;
-  filter: drop-shadow(0 0 14px rgba(var(--sentinel-accent-rgb), 0.18));
+  filter: drop-shadow(0 0 20px rgba(var(--sentinel-accent-rgb), 0.25));
 }
 
 .sentinel-flowmap-scatter-dot {
@@ -373,16 +387,31 @@ a {
   inset: 0;
 }
 
+/* Chip-style node: a bordered, tinted pill (not just floating text) so
+   each stage/issue reads as a distinct, tappable unit — the left/right
+   variant only changes which edge the connector notch sits on and
+   which way the text aligns, both anchored to the same point on the
+   SVG track beneath. */
 .sentinel-flowmap-node {
   position: absolute;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  max-width: 150px;
+  gap: 0.55rem;
+  width: 192px;
   text-decoration: none;
   color: var(--sentinel-text);
   transform: translate(-100%, -50%);
-  padding: 0.3rem 0;
+  padding: 0.5rem 0.7rem;
+  border-radius: 9px;
+  border: 1px solid rgba(var(--node-color-rgb, var(--sentinel-accent-rgb)), 0.45);
+  background: linear-gradient(135deg, rgba(var(--node-color-rgb, var(--sentinel-accent-rgb)), 0.14), rgba(var(--node-color-rgb, var(--sentinel-accent-rgb)), 0.04));
+  box-shadow: 0 0 16px -6px rgba(var(--node-color-rgb, var(--sentinel-accent-rgb)), 0.5);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.sentinel-flowmap-node:hover {
+  transform: translate(-100%, -50%) scale(1.03);
+  box-shadow: 0 0 20px -4px rgba(var(--node-color-rgb, var(--sentinel-accent-rgb)), 0.7);
 }
 
 .sentinel-flowmap-node-right {
@@ -390,10 +419,24 @@ a {
   flex-direction: row-reverse;
 }
 
-.sentinel-flowmap-node-dot {
+.sentinel-flowmap-node-right:hover {
+  transform: translate(0, -50%) scale(1.03);
+}
+
+.sentinel-flowmap-node-icon {
   flex-shrink: 0;
-  width: 11px;
-  height: 11px;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(var(--node-color-rgb, var(--sentinel-accent-rgb)), 0.2);
+}
+
+.sentinel-flowmap-node-dot {
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   background: var(--node-color, var(--sentinel-accent));
   box-shadow: 0 0 6px 1px var(--node-color, var(--sentinel-accent));
@@ -407,6 +450,7 @@ a {
   display: flex;
   flex-direction: column;
   line-height: 1.25;
+  min-width: 0;
 }
 
 .sentinel-flowmap-node-right .sentinel-flowmap-node-text {
@@ -414,17 +458,23 @@ a {
 }
 
 .sentinel-flowmap-node-label {
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--sentinel-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sentinel-flowmap-node-value {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-variant-numeric: tabular-nums;
-  font-size: 0.95rem;
-  font-weight: 600;
+  font-size: 0.92rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sentinel-flowmap-node:hover .sentinel-flowmap-node-value {

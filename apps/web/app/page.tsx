@@ -299,6 +299,7 @@ interface FlowNode {
   label: string;
   value: ReactNode;
   color: string;
+  colorRgb: string;
   attention?: boolean;
 }
 
@@ -313,10 +314,13 @@ function FlowMapNode({ node, y, side }: { node: FlowNode; y: number; side: 'left
           left: pct(side === 'left' ? STAGE_ANCHOR_X : ISSUE_ANCHOR_X, FLOW_W),
           top: pct(y, FLOW_H),
           '--node-color': node.color,
+          '--node-color-rgb': node.colorRgb,
         } as CSSProperties
       }
     >
-      <span className="sentinel-flowmap-node-dot" />
+      <span className="sentinel-flowmap-node-icon">
+        <span className="sentinel-flowmap-node-dot" />
+      </span>
       <span className="sentinel-flowmap-node-text">
         <span className="sentinel-flowmap-node-label">{node.label}</span>
         <span className="sentinel-flowmap-node-value">{node.value}</span>
@@ -343,6 +347,7 @@ function FlowMap({ stats, loaded }: { stats: PipelineStats; loaded: boolean }) {
       label: '1. Discover',
       value: `${stats.projectsDiscovered}/${stats.projectsTotal} projects`,
       color: 'var(--sentinel-flow-discover)',
+      colorRgb: 'var(--sentinel-flow-discover-rgb)',
     },
     {
       key: 'plan',
@@ -350,6 +355,7 @@ function FlowMap({ stats, loaded }: { stats: PipelineStats; loaded: boolean }) {
       label: '2. Plan',
       value: `${stats.testsTotal} test cases`,
       color: 'var(--sentinel-flow-plan)',
+      colorRgb: 'var(--sentinel-flow-plan-rgb)',
     },
     {
       key: 'approve',
@@ -357,6 +363,7 @@ function FlowMap({ stats, loaded }: { stats: PipelineStats; loaded: boolean }) {
       label: '3. Approve',
       value: `${stats.testsPendingApproval} pending`,
       color: 'var(--sentinel-warn)',
+      colorRgb: 'var(--sentinel-warn-rgb)',
       attention: stats.testsPendingApproval > 0,
     },
     {
@@ -370,6 +377,7 @@ function FlowMap({ stats, loaded }: { stats: PipelineStats; loaded: boolean }) {
           'idle'
         ),
       color: 'var(--sentinel-accent)',
+      colorRgb: 'var(--sentinel-accent-rgb)',
       attention: stats.runningNow.length > 0,
     },
     {
@@ -378,6 +386,7 @@ function FlowMap({ stats, loaded }: { stats: PipelineStats; loaded: boolean }) {
       label: '5. Correlate',
       value: `${stats.openBugs} open bugs`,
       color: 'var(--sentinel-danger)',
+      colorRgb: 'var(--sentinel-danger-rgb)',
       attention: stats.openBugs > 0,
     },
     {
@@ -386,6 +395,7 @@ function FlowMap({ stats, loaded }: { stats: PipelineStats; loaded: boolean }) {
       label: '6. Fix',
       value: `${stats.pendingFixProposals} awaiting review`,
       color: 'var(--sentinel-ok)',
+      colorRgb: 'var(--sentinel-ok-rgb)',
       attention: stats.pendingFixProposals > 0,
     },
   ];
@@ -397,6 +407,7 @@ function FlowMap({ stats, loaded }: { stats: PipelineStats; loaded: boolean }) {
       label: 'Open bugs',
       value: stats.openBugs,
       color: 'var(--sentinel-danger)',
+      colorRgb: 'var(--sentinel-danger-rgb)',
       attention: stats.openBugs > 0,
     },
     {
@@ -405,6 +416,7 @@ function FlowMap({ stats, loaded }: { stats: PipelineStats; loaded: boolean }) {
       label: 'Pending fixes',
       value: stats.pendingFixProposals,
       color: 'var(--sentinel-warn)',
+      colorRgb: 'var(--sentinel-warn-rgb)',
       attention: stats.pendingFixProposals > 0,
     },
     {
@@ -413,6 +425,7 @@ function FlowMap({ stats, loaded }: { stats: PipelineStats; loaded: boolean }) {
       label: 'Resolved',
       value: stats.resolvedBugs,
       color: 'var(--sentinel-ok)',
+      colorRgb: 'var(--sentinel-ok-rgb)',
     },
   ];
 
@@ -588,11 +601,24 @@ const FIX_APPROVAL_LABEL: Record<FixProposal['approval_status'], string> = {
   rejected: 'Rejected',
 };
 
-function InsightsCard({ title, viewAllHref, children }: { title: string; viewAllHref: string; children: ReactNode }) {
+function InsightsCard({
+  title,
+  viewAllHref,
+  accent,
+  children,
+}: {
+  title: string;
+  viewAllHref: string;
+  accent: string;
+  children: ReactNode;
+}) {
   return (
     <div className="sentinel-card">
       <div className="sentinel-insights-card-header">
-        <h3 className="sentinel-insights-title">{title}</h3>
+        <h3 className="sentinel-insights-title">
+          <span className="sentinel-insights-title-icon" style={{ background: accent } as CSSProperties} />
+          {title}
+        </h3>
         <Link href={viewAllHref} className="sentinel-insights-viewall">
           View all
         </Link>
@@ -623,7 +649,7 @@ function InsightsGrid({
 
   return (
     <div className="sentinel-insights-grid">
-      <InsightsCard title="Top projects" viewAllHref="/projects">
+      <InsightsCard title="Top projects" viewAllHref="/projects" accent="var(--sentinel-accent)">
         {stats.topProjects.length === 0 ? (
           <p className="sentinel-insights-empty">No projects yet.</p>
         ) : (
@@ -665,7 +691,7 @@ function InsightsGrid({
         )}
       </InsightsCard>
 
-      <InsightsCard title="Latest runs" viewAllHref="/runs">
+      <InsightsCard title="Latest runs" viewAllHref="/runs" accent="var(--sentinel-ok)">
         {stats.recentRuns.length === 0 ? (
           <p className="sentinel-insights-empty">No runs yet.</p>
         ) : (
@@ -693,7 +719,7 @@ function InsightsGrid({
         )}
       </InsightsCard>
 
-      <InsightsCard title="Top bugs" viewAllHref="/bugs">
+      <InsightsCard title="Top bugs" viewAllHref="/bugs" accent="var(--sentinel-danger)">
         {stats.topBugs.length === 0 ? (
           <p className="sentinel-insights-empty">No open bugs.</p>
         ) : (
@@ -716,7 +742,7 @@ function InsightsGrid({
         )}
       </InsightsCard>
 
-      <InsightsCard title="Latest fix proposals" viewAllHref="/fix-proposals">
+      <InsightsCard title="Latest fix proposals" viewAllHref="/fix-proposals" accent="var(--sentinel-warn)">
         {stats.recentFixProposalsList.length === 0 ? (
           <p className="sentinel-insights-empty">No fix proposals yet.</p>
         ) : (
@@ -740,7 +766,7 @@ function InsightsGrid({
         )}
       </InsightsCard>
 
-      <InsightsCard title="System status" viewAllHref="/settings">
+      <InsightsCard title="System status" viewAllHref="/settings" accent="var(--sentinel-flow-discover)">
         <div className="sentinel-insights-list">
           <span className="sentinel-insights-row">
             <span
@@ -773,7 +799,7 @@ function InsightsGrid({
         </div>
       </InsightsCard>
 
-      <InsightsCard title="AI providers" viewAllHref="/ai-providers">
+      <InsightsCard title="AI providers" viewAllHref="/ai-providers" accent="var(--sentinel-flow-plan)">
         {stats.aiProvidersEnabled === 0 ? (
           <p className="sentinel-insights-empty">None configured — fully optional, everything else works without it.</p>
         ) : (
@@ -839,7 +865,7 @@ export default function DashboardPage() {
       <FlowMap stats={stats} loaded={loaded} />
 
       {loaded && stats.runningNow.length > 0 && (
-        <InsightsCard title="Currently running" viewAllHref="/runs">
+        <InsightsCard title="Currently running" viewAllHref="/runs" accent="var(--sentinel-accent)">
           <div className="sentinel-insights-list">
             {stats.runningNow.map((r) => (
               <Link key={r.id} href={`/runs?project=${r.project_id}`} className="sentinel-insights-row">
