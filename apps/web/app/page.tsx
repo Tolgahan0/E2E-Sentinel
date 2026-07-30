@@ -37,7 +37,10 @@ interface PipelineStats {
   runningNow: TestRun[];
   passRate: number | null; // 0-100 over the most recent completed runs, or null if none yet
   recentRunsConsidered: number;
+  runsPassed: number;
+  runsFailed: number;
   openBugs: number;
+  resolvedBugs: number;
   pendingFixProposals: number;
   aiProvidersEnabled: number;
   aiProvidersHealthy: number;
@@ -52,7 +55,10 @@ const EMPTY_STATS: PipelineStats = {
   runningNow: [],
   passRate: null,
   recentRunsConsidered: 0,
+  runsPassed: 0,
+  runsFailed: 0,
   openBugs: 0,
+  resolvedBugs: 0,
   pendingFixProposals: 0,
   aiProvidersEnabled: 0,
   aiProvidersHealthy: 0,
@@ -112,44 +118,105 @@ async function loadPipelineStats(projects: Project[]): Promise<PipelineStats> {
     runningNow,
     passRate,
     recentRunsConsidered: finishedRuns.length,
-    openBugs: bugs.filter((b) => b.status === 'open').length,
+    runsPassed: allRuns.filter((r) => r.status === 'passed').length,
+    runsFailed: allRuns.filter((r) => r.status === 'failed' || r.status === 'error').length,
+    openBugs: bugs.filter((b) => b.status === 'open' || b.status === 'reopened').length,
+    resolvedBugs: bugs.filter((b) => b.status === 'resolved').length,
     pendingFixProposals: allFixProposals.filter((fp) => fp.approval_status === 'pending_review').length,
     aiProvidersEnabled: providers.filter((p) => p.enabled).length,
     aiProvidersHealthy: providers.filter((p) => p.health_status === 'ok').length,
   };
 }
 
-function PipelineStage({
-  href,
-  label,
-  value,
-  detail,
-  attention,
-}: {
+// The flow map's own coordinate space — an arbitrary but fixed canvas
+// that the SVG viewBox and the HTML overlay's percentage positions both
+// reference, so the two layers always land on the same points
+// regardless of the rendered size (see .sentinel-flowmap in globals.css).
+const FLOW_W = 1000;
+const FLOW_H = 380;
+const STAGE_ANCHOR_X = 195;
+const STAGE_Y: [number, number, number, number, number, number] = [32, 95, 158, 221, 284, 347];
+const HUB_X = 340;
+const HUB_Y = 190;
+const HUB_R = 62;
+const CLUSTER_X = 660;
+const CLUSTER_Y = 190;
+const CLUSTER_R = 96;
+const CLUSTER_CENTER_R = 44;
+const ISSUE_ANCHOR_X = 805;
+const ISSUE_Y: [number, number, number] = [108, 190, 272];
+
+function pct(x: number, total: number) {
+  return `${(x / total) * 100}%`;
+}
+
+// A gentle horizontal S-curve between two points — the same shape used
+// throughout for both the fan-in (stages -> hub) and fan-out
+// (cluster -> issues) tracks.
+function flowCurve(x1: number, y1: number, x2: number, y2: number) {
+  const midX = x1 + (x2 - x1) / 2;
+  return `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`;
+}
+
+// Deterministic "sunflower seed" scatter (golden-angle spiral) so the
+// cluster's per-run dots are stable across re-renders without resorting
+// to Math.random(), which would make them jitter on every poll.
+function scatterPoint(index: number, total: number, minR: number, maxR: number) {
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+  const angle = index * goldenAngle;
+  const frac = total <= 1 ? 1 : index / (total - 1);
+  const radius = minR + frac * (maxR - minR);
+  return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+}
+
+function usePrefersReducedMotion() {
+  const [reduced, setReduced] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const onChange = (e: MediaQueryListEvent) => setReduced(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  return reduced;
+}
+
+interface FlowNode {
+  key: string;
   href: string;
   label: string;
   value: ReactNode;
-  detail?: string;
+  color: string;
   attention?: boolean;
-}) {
+}
+
+function FlowMapNode({ node, y, side }: { node: FlowNode; y: number; side: 'left' | 'right' }) {
   return (
-    <Link href={href} className="sentinel-pipeline-stage" data-attention={attention ? 'true' : undefined}>
-      <span className="sentinel-pipeline-stage-label">{label}</span>
-      <span className="sentinel-pipeline-stage-value">{value}</span>
-      {detail && <span className="sentinel-pipeline-stage-detail">{detail}</span>}
+    <Link
+      href={node.href}
+      className={side === 'left' ? 'sentinel-flowmap-node' : 'sentinel-flowmap-node sentinel-flowmap-node-right'}
+      data-attention={node.attention ? 'true' : undefined}
+      style={
+        {
+          left: pct(side === 'left' ? STAGE_ANCHOR_X : ISSUE_ANCHOR_X, FLOW_W),
+          top: pct(y, FLOW_H),
+          '--node-color': node.color,
+        } as CSSProperties
+      }
+    >
+      <span className="sentinel-flowmap-node-dot" />
+      <span className="sentinel-flowmap-node-text">
+        <span className="sentinel-flowmap-node-label">{node.label}</span>
+        <span className="sentinel-flowmap-node-value">{node.value}</span>
+      </span>
     </Link>
   );
 }
 
-function PipelineConnector({ index }: { index: number }) {
-  return (
-    <div className="sentinel-pipeline-connector" aria-hidden="true">
-      <div className="sentinel-pipeline-connector-pulse" style={{ '--sentinel-flow-delay': `${index * 0.35}s` } as CSSProperties} />
-    </div>
-  );
-}
+function FlowMap({ stats, loaded }: { stats: PipelineStats; loaded: boolean }) {
+  const reducedMotion = usePrefersReducedMotion();
 
-function PipelineFlow({ stats, loaded }: { stats: PipelineStats; loaded: boolean }) {
   if (!loaded) {
     return (
       <div className="sentinel-card">
@@ -158,65 +225,212 @@ function PipelineFlow({ stats, loaded }: { stats: PipelineStats; loaded: boolean
     );
   }
 
+  const stageNodes: FlowNode[] = [
+    {
+      key: 'discover',
+      href: '/discovery',
+      label: '1. Discover',
+      value: `${stats.projectsDiscovered}/${stats.projectsTotal} projects`,
+      color: 'var(--sentinel-flow-discover)',
+    },
+    {
+      key: 'plan',
+      href: '/test-inventory',
+      label: '2. Plan',
+      value: `${stats.testsTotal} test cases`,
+      color: 'var(--sentinel-flow-plan)',
+    },
+    {
+      key: 'approve',
+      href: '/approvals',
+      label: '3. Approve',
+      value: `${stats.testsPendingApproval} pending`,
+      color: 'var(--sentinel-warn)',
+      attention: stats.testsPendingApproval > 0,
+    },
+    {
+      key: 'run',
+      href: '/runs',
+      label: '4. Run',
+      value:
+        stats.runningNow.length > 0 ? (
+          <span className="sentinel-flowmap-node-live">{stats.runningNow.length} running</span>
+        ) : (
+          'idle'
+        ),
+      color: 'var(--sentinel-accent)',
+      attention: stats.runningNow.length > 0,
+    },
+    {
+      key: 'correlate',
+      href: '/bugs',
+      label: '5. Correlate',
+      value: `${stats.openBugs} open bugs`,
+      color: 'var(--sentinel-danger)',
+      attention: stats.openBugs > 0,
+    },
+    {
+      key: 'fix',
+      href: '/fix-proposals',
+      label: '6. Fix',
+      value: `${stats.pendingFixProposals} awaiting review`,
+      color: 'var(--sentinel-ok)',
+      attention: stats.pendingFixProposals > 0,
+    },
+  ];
+
+  const issueNodes: FlowNode[] = [
+    {
+      key: 'open-bugs',
+      href: '/bugs',
+      label: 'Open bugs',
+      value: stats.openBugs,
+      color: 'var(--sentinel-danger)',
+      attention: stats.openBugs > 0,
+    },
+    {
+      key: 'pending-fixes',
+      href: '/fix-proposals',
+      label: 'Pending fixes',
+      value: stats.pendingFixProposals,
+      color: 'var(--sentinel-warn)',
+      attention: stats.pendingFixProposals > 0,
+    },
+    {
+      key: 'resolved',
+      href: '/bugs',
+      label: 'Resolved',
+      value: stats.resolvedBugs,
+      color: 'var(--sentinel-ok)',
+    },
+  ];
+
+  const totalRuns = stats.runsPassed + stats.runsFailed;
+  const CLUSTER_DOT_COUNT = 36;
+  const passDots = totalRuns > 0 ? Math.round((stats.runsPassed / totalRuns) * CLUSTER_DOT_COUNT) : 0;
+  const failDots = totalRuns > 0 ? CLUSTER_DOT_COUNT - passDots : 0;
+  const scatterColors: string[] = [];
+  for (let i = 0, p = 0, f = 0; i < passDots + failDots; i++) {
+    // Round-robin between the two buckets in their real proportion, so
+    // the dots read as mixed rather than solid-colored halves.
+    if (p / Math.max(passDots, 1) <= f / Math.max(failDots, 1) && p < passDots) {
+      scatterColors.push('var(--sentinel-ok)');
+      p++;
+    } else {
+      scatterColors.push('var(--sentinel-danger)');
+      f++;
+    }
+  }
+
+  const passRateTone = stats.passRate === null ? undefined : stats.passRate >= 80 ? 'ok' : stats.passRate >= 50 ? 'warn' : 'danger';
+
   return (
     <div className="sentinel-card">
       <h3 style={{ marginTop: 0 }}>Pipeline — where everything is right now</h3>
       <p className="sentinel-status-unknown" style={{ fontSize: '0.85rem', marginTop: '-0.5rem' }}>
-        Each stage links to the page that explains it. A red badge means something there is
+        Every node links to the page that explains it. A pulsing dot means something there is
         waiting on a human decision or needs attention.
       </p>
-      <div className="sentinel-pipeline">
-        <PipelineStage
-          href="/discovery"
-          label="1. Discover"
-          value={`${stats.projectsDiscovered}/${stats.projectsTotal} projects`}
-          detail="repo scan + Docker/K8s"
-        />
-        <PipelineConnector index={0} />
-        <PipelineStage
-          href="/test-inventory"
-          label="2. Plan"
-          value={`${stats.testsTotal} test cases`}
-          detail="deterministic, no AI required"
-        />
-        <PipelineConnector index={1} />
-        <PipelineStage
-          href="/approvals"
-          label="3. Approve"
-          value={`${stats.testsPendingApproval} pending`}
-          detail={`${stats.testsApproved} approved`}
-          attention={stats.testsPendingApproval > 0}
-        />
-        <PipelineConnector index={2} />
-        <PipelineStage
-          href="/runs"
-          label="4. Run"
-          value={
-            stats.runningNow.length > 0 ? (
-              <span className="sentinel-pipeline-stage-live">{stats.runningNow.length} running now</span>
-            ) : (
-              'idle'
-            )
-          }
-          detail={stats.passRate === null ? 'no completed runs yet' : `${stats.passRate}% pass rate (last ${stats.recentRunsConsidered})`}
-          attention={stats.runningNow.length > 0}
-        />
-        <PipelineConnector index={3} />
-        <PipelineStage
-          href="/bugs"
-          label="5. Correlate failures"
-          value={`${stats.openBugs} open bugs`}
-          detail="auto-classified, deduplicated"
-          attention={stats.openBugs > 0}
-        />
-        <PipelineConnector index={4} />
-        <PipelineStage
-          href="/fix-proposals"
-          label="6. Fix"
-          value={`${stats.pendingFixProposals} awaiting review`}
-          detail="AI-assisted, human-approved"
-          attention={stats.pendingFixProposals > 0}
-        />
+      <div className="sentinel-flowmap-scroll">
+        <div className="sentinel-flowmap">
+          <svg viewBox={`0 0 ${FLOW_W} ${FLOW_H}`} className="sentinel-flowmap-svg" aria-hidden="true">
+            {stageNodes.map((n, i) => (
+              <path
+                key={`track-stage-${n.key}`}
+                id={`sentinel-flow-stage-${i}`}
+                d={flowCurve(STAGE_ANCHOR_X, STAGE_Y[i]!, HUB_X - HUB_R + 4, HUB_Y)}
+                className="sentinel-flowmap-track"
+                style={{ '--node-color': n.color } as CSSProperties}
+              />
+            ))}
+            {[-16, 0, 16].map((offset, i) => (
+              <path
+                key={`track-hub-cluster-${i}`}
+                id={`sentinel-flow-hubcluster-${i}`}
+                d={flowCurve(HUB_X + HUB_R - 4, HUB_Y + offset * 0.4, CLUSTER_X - CLUSTER_R + 4, HUB_Y + offset)}
+                className="sentinel-flowmap-track"
+                style={{ '--node-color': 'var(--sentinel-accent)' } as CSSProperties}
+              />
+            ))}
+            {issueNodes.map((n, i) => (
+              <path
+                key={`track-issue-${n.key}`}
+                id={`sentinel-flow-issue-${i}`}
+                d={flowCurve(CLUSTER_X + CLUSTER_R - 4, CLUSTER_Y, ISSUE_ANCHOR_X, ISSUE_Y[i]!)}
+                className="sentinel-flowmap-track"
+                style={{ '--node-color': n.color } as CSSProperties}
+              />
+            ))}
+
+            {!reducedMotion &&
+              stageNodes.map((n, i) => (
+                <circle key={`dot-stage-${n.key}`} r="4" fill={n.color} className="sentinel-flowmap-dot" style={{ color: n.color }}>
+                  <animateMotion dur={`${2.6 + i * 0.2}s`} begin={`${i * 0.3}s`} repeatCount="indefinite">
+                    <mpath href={`#sentinel-flow-stage-${i}`} />
+                  </animateMotion>
+                </circle>
+              ))}
+            {!reducedMotion &&
+              [0, 1, 2].map((i) => (
+                <circle
+                  key={`dot-hubcluster-${i}`}
+                  r="4"
+                  fill="var(--sentinel-accent)"
+                  className="sentinel-flowmap-dot"
+                  style={{ color: 'var(--sentinel-accent)' }}
+                >
+                  <animateMotion dur={`${1.9 + i * 0.25}s`} begin={`${i * 0.4}s`} repeatCount="indefinite">
+                    <mpath href={`#sentinel-flow-hubcluster-${i}`} />
+                  </animateMotion>
+                </circle>
+              ))}
+            {!reducedMotion &&
+              issueNodes.map((n, i) => (
+                <circle key={`dot-issue-${n.key}`} r="4" fill={n.color} className="sentinel-flowmap-dot" style={{ color: n.color }}>
+                  <animateMotion dur={`${2.2 + i * 0.25}s`} begin={`${i * 0.35}s`} repeatCount="indefinite">
+                    <mpath href={`#sentinel-flow-issue-${i}`} />
+                  </animateMotion>
+                </circle>
+              ))}
+
+            <circle cx={HUB_X} cy={HUB_Y} r={HUB_R} className="sentinel-flowmap-hub-circle" />
+            <circle cx={CLUSTER_X} cy={CLUSTER_Y} r={CLUSTER_R + 6} className="sentinel-flowmap-hub-circle" style={{ fillOpacity: 0.15 }} />
+            {scatterColors.map((color, i) => {
+              const p = scatterPoint(i, scatterColors.length, CLUSTER_CENTER_R + 12, CLUSTER_R - 6);
+              return (
+                <circle
+                  key={`scatter-${i}`}
+                  cx={CLUSTER_X + p.x}
+                  cy={CLUSTER_Y + p.y}
+                  r={3}
+                  fill={color}
+                  style={{ color }}
+                  className="sentinel-flowmap-scatter-dot"
+                />
+              );
+            })}
+            <circle cx={CLUSTER_X} cy={CLUSTER_Y} r={CLUSTER_CENTER_R} className="sentinel-flowmap-hub-circle" />
+          </svg>
+
+          <div className="sentinel-flowmap-overlay">
+            {stageNodes.map((n, i) => (
+              <FlowMapNode key={n.key} node={n} y={STAGE_Y[i]!} side="left" />
+            ))}
+            {issueNodes.map((n, i) => (
+              <FlowMapNode key={n.key} node={n} y={ISSUE_Y[i]!} side="right" />
+            ))}
+            <div className="sentinel-flowmap-hub-label" style={{ left: pct(HUB_X, FLOW_W), top: pct(HUB_Y, FLOW_H) }}>
+              <span className="sentinel-flowmap-hub-value">{stats.projectsTotal}</span>
+              <span className="sentinel-flowmap-hub-caption">Projects</span>
+            </div>
+            <div className="sentinel-flowmap-hub-label" style={{ left: pct(CLUSTER_X, FLOW_W), top: pct(CLUSTER_Y, FLOW_H) }}>
+              <span className="sentinel-flowmap-hub-value" data-tone={passRateTone}>
+                {stats.passRate === null ? '—' : `${stats.passRate}%`}
+              </span>
+              <span className="sentinel-flowmap-hub-caption">Pass rate</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -266,7 +480,7 @@ export default function DashboardPage() {
         recommendations and evidence-backed failure reports.
       </p>
 
-      <PipelineFlow stats={stats} loaded={loaded} />
+      <FlowMap stats={stats} loaded={loaded} />
 
       {loaded && stats.runningNow.length > 0 && (
         <section className="sentinel-card" style={{ marginTop: '1rem' }}>

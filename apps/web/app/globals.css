@@ -7,9 +7,13 @@
   --sentinel-accent: #4f8cff;
   --sentinel-accent-rgb: 79, 140, 255;
   --sentinel-ok: #34c77b;
+  --sentinel-ok-rgb: 52, 199, 123;
   --sentinel-warn: #e0a72e;
+  --sentinel-warn-rgb: 224, 167, 46;
   --sentinel-danger: #e05a4e;
   --sentinel-danger-rgb: 224, 90, 78;
+  --sentinel-flow-discover: #22d3ee;
+  --sentinel-flow-plan: #a78bfa;
 }
 
 @media (prefers-color-scheme: light) {
@@ -21,6 +25,8 @@
     --sentinel-muted: #565f6b;
     --sentinel-accent: #2f5fd0;
     --sentinel-accent-rgb: 47, 95, 208;
+    --sentinel-flow-discover: #0e8fa8;
+    --sentinel-flow-plan: #6d3fd1;
   }
 }
 
@@ -123,104 +129,131 @@ a {
   margin-top: 1rem;
 }
 
-/* Dashboard pipeline flow — a horizontal row of clickable stage cards
-   joined by connectors carrying an animated pulse (data actually moving
-   through the system), each stage showing its live count and whether it
-   currently needs a human decision (data-attention). */
-.sentinel-pipeline {
-  position: relative;
-  display: flex;
-  align-items: stretch;
-  gap: 0;
+/* Dashboard flow map — a node-link diagram: six pipeline-stage nodes
+   fan into a "Projects" hub, the hub feeds a "Pass rate" cluster (a
+   scatter of dots, one per recent run, colored by outcome), and the
+   cluster fans out to three issue nodes (open bugs / pending fixes /
+   resolved). An SVG layer draws the curved tracks plus small dots that
+   travel along them (data actually moving through the system); an HTML
+   layer on top renders the node pills as real, clickable, accessible
+   links. Both layers share one coordinate space via the wrapper's
+   aspect-ratio matching the SVG viewBox exactly, so percentage-based
+   HTML positions land precisely on the SVG paths beneath them. */
+/* Horizontal-scroll wrapper: the diagram's node-link layout doesn't
+   reflow to a vertical stack the way a simple row of cards can, so
+   below its minimum width it scrolls instead of squishing illegibly. */
+.sentinel-flowmap-scroll {
   overflow-x: auto;
-  overflow-y: visible;
   margin-top: 1.25rem;
-  padding: 0.5rem 0.25rem 1rem;
-  background-image: radial-gradient(var(--sentinel-border) 1px, transparent 1px);
-  background-size: 16px 16px;
-  background-position: -4px -4px;
 }
 
-.sentinel-pipeline-stage {
+.sentinel-flowmap {
   position: relative;
+  width: 100%;
+  min-width: 720px;
+  aspect-ratio: 1000 / 380;
+}
+
+.sentinel-flowmap-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.sentinel-flowmap-track {
+  fill: none;
+  stroke: var(--node-color, var(--sentinel-border));
+  stroke-width: 2;
+  opacity: 0.55;
+}
+
+.sentinel-flowmap-dot {
+  filter: drop-shadow(0 0 5px currentColor) drop-shadow(0 0 10px currentColor);
+}
+
+.sentinel-flowmap-hub-circle {
+  fill: var(--sentinel-surface);
+  stroke: var(--sentinel-border);
+  stroke-width: 1.5;
+  filter: drop-shadow(0 0 14px rgba(var(--sentinel-accent-rgb), 0.18));
+}
+
+.sentinel-flowmap-scatter-dot {
+  opacity: 0.95;
+  filter: drop-shadow(0 0 3px currentColor);
+}
+
+.sentinel-flowmap-overlay {
+  position: absolute;
+  inset: 0;
+}
+
+.sentinel-flowmap-node {
+  position: absolute;
   display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  min-width: 158px;
-  padding: 0.8rem 0.95rem;
-  border-radius: 10px;
-  border: 1px solid var(--sentinel-border);
-  background: var(--sentinel-surface);
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 150px;
   text-decoration: none;
   color: var(--sentinel-text);
-  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+  transform: translate(-100%, -50%);
+  padding: 0.3rem 0;
 }
 
-.sentinel-pipeline-stage::before {
-  /* Left accent bar — semantic state at a glance, independent of the
-     accent hue used for hover/focus. */
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0.6rem;
-  bottom: 0.6rem;
-  width: 3px;
-  border-radius: 2px;
-  background: var(--sentinel-border);
-  transition: background 0.15s ease;
+.sentinel-flowmap-node-right {
+  transform: translate(0, -50%);
+  flex-direction: row-reverse;
 }
 
-.sentinel-pipeline-stage:hover {
-  border-color: var(--sentinel-accent);
-  transform: translateY(-1px);
+.sentinel-flowmap-node-dot {
+  flex-shrink: 0;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--node-color, var(--sentinel-accent));
+  box-shadow: 0 0 6px 1px var(--node-color, var(--sentinel-accent));
 }
 
-.sentinel-pipeline-stage:hover::before {
-  background: var(--sentinel-accent);
+.sentinel-flowmap-node[data-attention='true'] .sentinel-flowmap-node-dot {
+  animation: sentinel-attention-pulse 2.2s ease-in-out infinite;
 }
 
-.sentinel-pipeline-stage[data-attention='true'] {
-  border-color: var(--sentinel-danger);
-  animation: sentinel-attention-pulse 2.4s ease-in-out infinite;
+.sentinel-flowmap-node-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
 }
 
-.sentinel-pipeline-stage[data-attention='true']::before {
-  background: var(--sentinel-danger);
+.sentinel-flowmap-node-right .sentinel-flowmap-node-text {
+  text-align: right;
 }
 
-.sentinel-pipeline-stage-label {
-  font-size: 0.72rem;
+.sentinel-flowmap-node-label {
+  font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--sentinel-muted);
 }
 
-.sentinel-pipeline-stage-value {
+.sentinel-flowmap-node-value {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-variant-numeric: tabular-nums;
-  font-size: 1.1rem;
+  font-size: 0.95rem;
   font-weight: 600;
-  letter-spacing: -0.01em;
 }
 
-.sentinel-pipeline-stage[data-attention='true'] .sentinel-pipeline-stage-value {
-  color: var(--sentinel-danger);
+.sentinel-flowmap-node:hover .sentinel-flowmap-node-value {
+  color: var(--node-color, var(--sentinel-accent));
 }
 
-.sentinel-pipeline-stage-detail {
-  font-size: 0.78rem;
-  color: var(--sentinel-muted);
-}
-
-.sentinel-pipeline-stage-live {
+.sentinel-flowmap-node-live {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  color: var(--sentinel-accent);
-  font-weight: 600;
 }
 
-.sentinel-pipeline-stage-live::before {
+.sentinel-flowmap-node-live::before {
   content: '';
   width: 7px;
   height: 7px;
@@ -230,70 +263,50 @@ a {
   animation: sentinel-live-dot 1.6s ease-out infinite;
 }
 
-/* Connector between two stages: a static track plus a small pulse that
-   travels along it, left to right, looping — the "data flowing through
-   the pipeline" visual. Direction reverses to vertical on narrow
-   screens via the media query below; the pulse keeps moving along the
-   connector's own local axis either way. */
-.sentinel-pipeline-connector {
-  position: relative;
-  width: 2.75rem;
-  flex-shrink: 0;
-  align-self: center;
-  height: 2px;
-  background: var(--sentinel-border);
-}
-
-.sentinel-pipeline-connector::after {
-  content: '';
+.sentinel-flowmap-hub-label {
   position: absolute;
-  top: 50%;
-  right: -1px;
-  width: 6px;
-  height: 6px;
-  border-top: 1px solid var(--sentinel-border);
-  border-right: 1px solid var(--sentinel-border);
-  transform: translateY(-50%) rotate(45deg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  pointer-events: none;
 }
 
-.sentinel-pipeline-connector-pulse {
-  position: absolute;
-  top: 50%;
-  left: 0;
-  width: 7px;
-  height: 7px;
-  margin-top: -3.5px;
-  border-radius: 50%;
-  background: var(--sentinel-accent);
-  box-shadow: 0 0 8px 2px var(--sentinel-accent);
-  animation: sentinel-flow 2.4s linear infinite;
-  animation-delay: var(--sentinel-flow-delay, 0s);
+.sentinel-flowmap-hub-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 1.6rem;
+  font-weight: 700;
 }
 
-@keyframes sentinel-flow {
-  0% {
-    left: 0;
-    opacity: 0;
-  }
-  8% {
-    opacity: 1;
-  }
-  92% {
-    opacity: 1;
-  }
-  100% {
-    left: calc(100% - 7px);
-    opacity: 0;
-  }
+.sentinel-flowmap-hub-value[data-tone='ok'] {
+  color: var(--sentinel-ok);
+}
+
+.sentinel-flowmap-hub-value[data-tone='warn'] {
+  color: var(--sentinel-warn);
+}
+
+.sentinel-flowmap-hub-value[data-tone='danger'] {
+  color: var(--sentinel-danger);
+}
+
+.sentinel-flowmap-hub-caption {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--sentinel-muted);
+  margin-top: 0.15rem;
 }
 
 @keyframes sentinel-attention-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(var(--sentinel-danger-rgb), 0.3);
+    box-shadow: 0 0 6px 1px var(--node-color, var(--sentinel-accent)), 0 0 0 0 rgba(var(--sentinel-danger-rgb), 0.55);
   }
   50% {
-    box-shadow: 0 0 0 5px rgba(var(--sentinel-danger-rgb), 0);
+    box-shadow: 0 0 6px 1px var(--node-color, var(--sentinel-accent)), 0 0 0 6px rgba(var(--sentinel-danger-rgb), 0);
   }
 }
 
@@ -306,53 +319,9 @@ a {
   }
 }
 
-@media (max-width: 900px) {
-  .sentinel-pipeline {
-    flex-direction: column;
-    background-position: 0 0;
-  }
-  .sentinel-pipeline-connector {
-    width: 2px;
-    height: 1.75rem;
-    align-self: flex-start;
-    margin-left: 1.1rem;
-  }
-  .sentinel-pipeline-connector::after {
-    top: unset;
-    bottom: -1px;
-    left: 50%;
-    transform: translateX(-50%) rotate(135deg);
-  }
-  .sentinel-pipeline-connector-pulse {
-    left: 50%;
-    top: 0;
-    margin-left: -3.5px;
-    margin-top: 0;
-    animation-name: sentinel-flow-vertical;
-  }
-  @keyframes sentinel-flow-vertical {
-    0% {
-      top: 0;
-      opacity: 0;
-    }
-    8% {
-      opacity: 1;
-    }
-    92% {
-      opacity: 1;
-    }
-    100% {
-      top: calc(100% - 7px);
-      opacity: 0;
-    }
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .sentinel-pipeline-connector-pulse {
-    animation: none;
-    opacity: 0.6;
-    left: 50%;
+  .sentinel-flowmap-dot {
+    display: none;
   }
 }
 
