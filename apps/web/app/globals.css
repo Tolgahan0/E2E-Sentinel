@@ -129,6 +129,190 @@ a {
   margin-top: 1rem;
 }
 
+/* Below-the-fold dashboard insights: four ranked-list columns (top
+   projects by open bugs, latest runs, top bugs, latest fix proposals)
+   — the same "scan the summary, not a generic log" structure as the
+   flow map above, just in list form instead of a diagram. */
+/* Fixed 4-up grid (not auto-fit/auto-fill): with 6 cards wrapping to a
+   second, partial row, a dynamic column count would leave that row's
+   fewer items either stretched wide or left with a stray gap depending
+   on the engine — fixing the column count keeps every row's cards the
+   same width regardless of how many happen to be in it. */
+.sentinel-insights-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+@media (max-width: 1100px) {
+  .sentinel-insights-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .sentinel-insights-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.sentinel-insights-card-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.sentinel-insights-title {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--sentinel-muted);
+}
+
+.sentinel-insights-viewall {
+  font-size: 0.78rem;
+  color: var(--sentinel-accent);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.sentinel-insights-viewall:hover {
+  text-decoration: underline;
+}
+
+.sentinel-insights-list {
+  display: flex;
+  flex-direction: column;
+  margin-top: 0.85rem;
+}
+
+.sentinel-insights-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--sentinel-border);
+  text-decoration: none;
+  color: inherit;
+}
+
+.sentinel-insights-list a.sentinel-insights-row:hover {
+  color: var(--sentinel-accent);
+}
+
+.sentinel-insights-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.sentinel-insights-row-rank {
+  flex-shrink: 0;
+  width: 1.1rem;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--sentinel-muted);
+  text-align: center;
+}
+
+.sentinel-insights-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dot-color, var(--sentinel-muted));
+}
+
+.sentinel-insights-dot[data-live='true'] {
+  box-shadow: 0 0 0 0 rgba(var(--sentinel-accent-rgb), 0.5);
+  animation: sentinel-live-dot 1.6s ease-out infinite;
+}
+
+.sentinel-insights-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.sentinel-insights-row-title {
+  font-size: 0.85rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sentinel-insights-row-sub {
+  font-size: 0.72rem;
+  color: var(--sentinel-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sentinel-insights-row-end {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
+}
+
+.sentinel-insights-bar-track {
+  width: 56px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--sentinel-border);
+  overflow: hidden;
+}
+
+.sentinel-insights-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--bar-color, var(--sentinel-accent));
+}
+
+.sentinel-insights-pill {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.sentinel-insights-pill[data-tone='danger'] {
+  color: var(--sentinel-danger);
+  background: rgba(var(--sentinel-danger-rgb), 0.14);
+}
+
+.sentinel-insights-pill[data-tone='warn'] {
+  color: var(--sentinel-warn);
+  background: rgba(var(--sentinel-warn-rgb), 0.14);
+}
+
+.sentinel-insights-pill[data-tone='ok'] {
+  color: var(--sentinel-ok);
+  background: rgba(var(--sentinel-ok-rgb), 0.14);
+}
+
+.sentinel-insights-pill[data-tone='muted'] {
+  color: var(--sentinel-muted);
+  background: rgba(var(--sentinel-accent-rgb), 0.08);
+}
+
+.sentinel-insights-empty {
+  margin-top: 0.85rem;
+  font-size: 0.85rem;
+  color: var(--sentinel-muted);
+}
+
 /* Dashboard flow map — a node-link diagram: six pipeline-stage nodes
    fan into a "Projects" hub, the hub feeds a "Pass rate" cluster (a
    scatter of dots, one per recent run, colored by outcome), and the

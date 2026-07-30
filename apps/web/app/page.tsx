@@ -4,28 +4,55 @@ import Link from 'next/link';
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import {
   fetchJSON,
-  type AuditEvent,
-  type AuditEventsResponse,
+  type BugReport,
   type BugsResponse,
+  type FixProposal,
   type FixProposalsResponse,
   type HealthResponse,
   type Project,
   type ProjectsResponse,
   type ProvidersResponse,
   type ReadyResponse,
+  type RunStatus,
   type RunsResponse,
   type TestRun,
   type TestsResponse,
 } from '@/lib/api';
 
-function StatusBadge({ label, ok }: { label: string; ok: boolean | null }) {
-  const className = ok === null ? 'sentinel-status-unknown' : ok ? 'sentinel-status-ok' : 'sentinel-status-bad';
-  const text = ok === null ? 'unknown' : ok ? 'ok' : 'unreachable';
-  return (
-    <p className={className}>
-      {label}: {text}
-    </p>
-  );
+interface TopProject {
+  id: string;
+  name: string;
+  testsTotal: number;
+  openBugs: number;
+  passRate: number | null;
+}
+
+interface RecentRun {
+  id: string;
+  projectId: string;
+  projectName: string;
+  testTitle: string;
+  status: RunStatus;
+  startedAt: string;
+}
+
+interface TopBug {
+  id: string;
+  projectId: string;
+  projectName: string;
+  title: string;
+  severity: BugReport['severity'];
+  frequency: number;
+  status: BugReport['status'];
+}
+
+interface RecentFixProposal {
+  id: string;
+  projectId: string;
+  projectName: string;
+  title: string;
+  approvalStatus: FixProposal['approval_status'];
+  generatedAt: string;
 }
 
 interface PipelineStats {
@@ -44,6 +71,10 @@ interface PipelineStats {
   pendingFixProposals: number;
   aiProvidersEnabled: number;
   aiProvidersHealthy: number;
+  topProjects: TopProject[];
+  recentRuns: RecentRun[];
+  topBugs: TopBug[];
+  recentFixProposalsList: RecentFixProposal[];
 }
 
 const EMPTY_STATS: PipelineStats = {
@@ -62,6 +93,18 @@ const EMPTY_STATS: PipelineStats = {
   pendingFixProposals: 0,
   aiProvidersEnabled: 0,
   aiProvidersHealthy: 0,
+  topProjects: [],
+  recentRuns: [],
+  topBugs: [],
+  recentFixProposalsList: [],
+};
+
+const SEVERITY_RANK: Record<BugReport['severity'], number> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+  informational: 4,
 };
 
 // Aggregates across every project by fetching each project's tests/runs/
@@ -84,6 +127,8 @@ async function loadPipelineStats(projects: Project[]): Promise<PipelineStats> {
         fetchJSON<FixProposalsResponse>(`/api/v1/projects/${p.id}/fix-proposals`),
       ]);
       return {
+        id: p.id,
+        name: p.name,
         tests: testsRes?.tests ?? [],
         runs: runsRes?.runs ?? [],
         fixProposals: fixRes?.fix_proposals ?? [],
@@ -91,9 +136,11 @@ async function loadPipelineStats(projects: Project[]): Promise<PipelineStats> {
     })
   );
 
+  const projectName = new Map(projects.map((p) => [p.id, p.name]));
   const allTests = perProject.flatMap((p) => p.tests);
   const allRuns = perProject.flatMap((p) => p.runs);
   const allFixProposals = perProject.flatMap((p) => p.fixProposals);
+  const testTitle = new Map(allTests.map((t) => [t.id, t.title]));
 
   const runningNow = allRuns.filter((r) => r.status === 'running' || r.status === 'queued');
 
@@ -108,6 +155,66 @@ async function loadPipelineStats(projects: Project[]): Promise<PipelineStats> {
 
   const bugs = bugsRes?.bugs ?? [];
   const providers = providersRes?.providers ?? [];
+  const openBugsByProject = new Map<string, number>();
+  for (const b of bugs) {
+    if (b.status === 'open' || b.status === 'reopened') {
+      openBugsByProject.set(b.project_id, (openBugsByProject.get(b.project_id) ?? 0) + 1);
+    }
+  }
+
+  const topProjects: TopProject[] = perProject
+    .map((p) => {
+      const finished = p.runs.filter((r) => r.status === 'passed' || r.status === 'failed');
+      const projectPassRate =
+        finished.length === 0 ? null : Math.round((100 * finished.filter((r) => r.status === 'passed').length) / finished.length);
+      return {
+        id: p.id,
+        name: p.name,
+        testsTotal: p.tests.length,
+        openBugs: openBugsByProject.get(p.id) ?? 0,
+        passRate: projectPassRate,
+      };
+    })
+    .sort((a, b) => b.openBugs - a.openBugs || b.testsTotal - a.testsTotal)
+    .slice(0, 6);
+
+  const recentRuns: RecentRun[] = [...allRuns]
+    .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())
+    .slice(0, 6)
+    .map((r) => ({
+      id: r.id,
+      projectId: r.project_id,
+      projectName: projectName.get(r.project_id) ?? 'unknown project',
+      testTitle: testTitle.get(r.test_case_id) ?? r.test_case_id,
+      status: r.status,
+      startedAt: r.started_at,
+    }));
+
+  const topBugs: TopBug[] = [...bugs]
+    .filter((b) => b.status !== 'resolved')
+    .sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] || b.frequency - a.frequency)
+    .slice(0, 6)
+    .map((b) => ({
+      id: b.id,
+      projectId: b.project_id,
+      projectName: projectName.get(b.project_id) ?? 'unknown project',
+      title: b.title,
+      severity: b.severity,
+      frequency: b.frequency,
+      status: b.status,
+    }));
+
+  const recentFixProposalsList: RecentFixProposal[] = [...allFixProposals]
+    .sort((a, b) => new Date(b.generated_at).getTime() - new Date(a.generated_at).getTime())
+    .slice(0, 6)
+    .map((fp) => ({
+      id: fp.id,
+      projectId: fp.project_id,
+      projectName: projectName.get(fp.project_id) ?? 'unknown project',
+      title: fp.title,
+      approvalStatus: fp.approval_status,
+      generatedAt: fp.generated_at,
+    }));
 
   return {
     projectsTotal: projects.length,
@@ -125,6 +232,10 @@ async function loadPipelineStats(projects: Project[]): Promise<PipelineStats> {
     pendingFixProposals: allFixProposals.filter((fp) => fp.approval_status === 'pending_review').length,
     aiProvidersEnabled: providers.filter((p) => p.enabled).length,
     aiProvidersHealthy: providers.filter((p) => p.health_status === 'ok').length,
+    topProjects,
+    recentRuns,
+    topBugs,
+    recentFixProposalsList,
   };
 }
 
@@ -436,10 +547,257 @@ function FlowMap({ stats, loaded }: { stats: PipelineStats; loaded: boolean }) {
   );
 }
 
+function relativeTime(iso: string): string {
+  const diffSec = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  if (diffSec < 60) return 'just now';
+  const diffMin = Math.round(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.round(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  return `${Math.round(diffHr / 24)}d ago`;
+}
+
+const SEVERITY_TONE: Record<BugReport['severity'], 'danger' | 'warn' | 'muted'> = {
+  critical: 'danger',
+  high: 'danger',
+  medium: 'warn',
+  low: 'muted',
+  informational: 'muted',
+};
+
+const RUN_DOT_COLOR: Record<RunStatus, string> = {
+  passed: 'var(--sentinel-ok)',
+  failed: 'var(--sentinel-danger)',
+  error: 'var(--sentinel-danger)',
+  running: 'var(--sentinel-accent)',
+  queued: 'var(--sentinel-accent)',
+  cancelled: 'var(--sentinel-muted)',
+};
+
+const FIX_APPROVAL_TONE: Record<FixProposal['approval_status'], 'danger' | 'warn' | 'ok'> = {
+  pending_review: 'warn',
+  revision_requested: 'warn',
+  approved: 'ok',
+  rejected: 'danger',
+};
+
+const FIX_APPROVAL_LABEL: Record<FixProposal['approval_status'], string> = {
+  pending_review: 'Pending review',
+  revision_requested: 'Revision requested',
+  approved: 'Approved',
+  rejected: 'Rejected',
+};
+
+function InsightsCard({ title, viewAllHref, children }: { title: string; viewAllHref: string; children: ReactNode }) {
+  return (
+    <div className="sentinel-card">
+      <div className="sentinel-insights-card-header">
+        <h3 className="sentinel-insights-title">{title}</h3>
+        <Link href={viewAllHref} className="sentinel-insights-viewall">
+          View all
+        </Link>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function InsightsGrid({
+  stats,
+  loaded,
+  health,
+  ready,
+}: {
+  stats: PipelineStats;
+  loaded: boolean;
+  health: HealthResponse | null;
+  ready: ReadyResponse | null;
+}) {
+  if (!loaded) {
+    return (
+      <div className="sentinel-card" style={{ marginTop: '1rem' }}>
+        <p className="sentinel-status-unknown">loading insights&hellip;</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="sentinel-insights-grid">
+      <InsightsCard title="Top projects" viewAllHref="/projects">
+        {stats.topProjects.length === 0 ? (
+          <p className="sentinel-insights-empty">No projects yet.</p>
+        ) : (
+          <div className="sentinel-insights-list">
+            {stats.topProjects.map((p, i) => (
+              <Link key={p.id} href={`/test-inventory?project=${p.id}`} className="sentinel-insights-row">
+                <span className="sentinel-insights-row-rank">{i + 1}</span>
+                <span className="sentinel-insights-row-main">
+                  <span className="sentinel-insights-row-title">{p.name}</span>
+                  <span className="sentinel-insights-row-sub">{p.testsTotal} test cases</span>
+                </span>
+                <span className="sentinel-insights-row-end">
+                  {p.openBugs > 0 ? (
+                    <span className="sentinel-insights-pill" data-tone="danger">
+                      {p.openBugs} open
+                    </span>
+                  ) : (
+                    <span className="sentinel-insights-pill" data-tone="ok">
+                      clean
+                    </span>
+                  )}
+                  {p.passRate !== null && (
+                    <span className="sentinel-insights-bar-track">
+                      <span
+                        className="sentinel-insights-bar-fill"
+                        style={
+                          {
+                            width: `${p.passRate}%`,
+                            '--bar-color': p.passRate >= 80 ? 'var(--sentinel-ok)' : p.passRate >= 50 ? 'var(--sentinel-warn)' : 'var(--sentinel-danger)',
+                          } as CSSProperties
+                        }
+                      />
+                    </span>
+                  )}
+                </span>
+              </Link>
+            ))}
+          </div>
+        )}
+      </InsightsCard>
+
+      <InsightsCard title="Latest runs" viewAllHref="/runs">
+        {stats.recentRuns.length === 0 ? (
+          <p className="sentinel-insights-empty">No runs yet.</p>
+        ) : (
+          <div className="sentinel-insights-list">
+            {stats.recentRuns.map((r) => (
+              <Link key={r.id} href={`/runs?project=${r.projectId}`} className="sentinel-insights-row">
+                <span
+                  className="sentinel-insights-dot"
+                  data-live={r.status === 'running' ? 'true' : undefined}
+                  style={{ '--dot-color': RUN_DOT_COLOR[r.status] } as CSSProperties}
+                />
+                <span className="sentinel-insights-row-main">
+                  <span className="sentinel-insights-row-title">{r.testTitle}</span>
+                  <span className="sentinel-insights-row-sub">{r.projectName}</span>
+                </span>
+                <span className="sentinel-insights-row-end">
+                  <span className="sentinel-insights-pill" data-tone={r.status === 'passed' ? 'ok' : r.status === 'failed' || r.status === 'error' ? 'danger' : 'muted'}>
+                    {r.status}
+                  </span>
+                  <span className="sentinel-insights-row-sub">{relativeTime(r.startedAt)}</span>
+                </span>
+              </Link>
+            ))}
+          </div>
+        )}
+      </InsightsCard>
+
+      <InsightsCard title="Top bugs" viewAllHref="/bugs">
+        {stats.topBugs.length === 0 ? (
+          <p className="sentinel-insights-empty">No open bugs.</p>
+        ) : (
+          <div className="sentinel-insights-list">
+            {stats.topBugs.map((b) => (
+              <Link key={b.id} href={`/bugs?project=${b.projectId}`} className="sentinel-insights-row">
+                <span className="sentinel-insights-pill" data-tone={SEVERITY_TONE[b.severity]}>
+                  {b.severity}
+                </span>
+                <span className="sentinel-insights-row-main">
+                  <span className="sentinel-insights-row-title">{b.title}</span>
+                  <span className="sentinel-insights-row-sub">{b.projectName}</span>
+                </span>
+                <span className="sentinel-insights-row-end">
+                  <span className="sentinel-insights-row-sub">{b.frequency > 1 ? `${b.frequency}x recurrent` : 'new'}</span>
+                </span>
+              </Link>
+            ))}
+          </div>
+        )}
+      </InsightsCard>
+
+      <InsightsCard title="Latest fix proposals" viewAllHref="/fix-proposals">
+        {stats.recentFixProposalsList.length === 0 ? (
+          <p className="sentinel-insights-empty">No fix proposals yet.</p>
+        ) : (
+          <div className="sentinel-insights-list">
+            {stats.recentFixProposalsList.map((fp) => (
+              <Link key={fp.id} href={`/fix-proposals?project=${fp.projectId}`} className="sentinel-insights-row">
+                <span className="sentinel-insights-row-main">
+                  <span className="sentinel-insights-row-title">{fp.title}</span>
+                  <span className="sentinel-insights-row-sub">
+                    {fp.projectName} &middot; {relativeTime(fp.generatedAt)}
+                  </span>
+                </span>
+                <span className="sentinel-insights-row-end">
+                  <span className="sentinel-insights-pill" data-tone={FIX_APPROVAL_TONE[fp.approvalStatus]}>
+                    {FIX_APPROVAL_LABEL[fp.approvalStatus]}
+                  </span>
+                </span>
+              </Link>
+            ))}
+          </div>
+        )}
+      </InsightsCard>
+
+      <InsightsCard title="System status" viewAllHref="/settings">
+        <div className="sentinel-insights-list">
+          <span className="sentinel-insights-row">
+            <span
+              className="sentinel-insights-dot"
+              style={{ '--dot-color': health?.status === 'ok' ? 'var(--sentinel-ok)' : 'var(--sentinel-danger)' } as CSSProperties}
+            />
+            <span className="sentinel-insights-row-main">
+              <span className="sentinel-insights-row-title">sentinel-api</span>
+            </span>
+            <span className="sentinel-insights-row-end">
+              <span className="sentinel-insights-pill" data-tone={health?.status === 'ok' ? 'ok' : 'danger'}>
+                {health?.status === 'ok' ? 'ok' : 'unreachable'}
+              </span>
+            </span>
+          </span>
+          {ready &&
+            Object.entries(ready.checks).map(([dep, status]) => (
+              <span className="sentinel-insights-row" key={dep}>
+                <span className="sentinel-insights-dot" style={{ '--dot-color': status === 'ok' ? 'var(--sentinel-ok)' : 'var(--sentinel-danger)' } as CSSProperties} />
+                <span className="sentinel-insights-row-main">
+                  <span className="sentinel-insights-row-title">{dep}</span>
+                </span>
+                <span className="sentinel-insights-row-end">
+                  <span className="sentinel-insights-pill" data-tone={status === 'ok' ? 'ok' : 'danger'}>
+                    {status === 'ok' ? 'ok' : 'unreachable'}
+                  </span>
+                </span>
+              </span>
+            ))}
+        </div>
+      </InsightsCard>
+
+      <InsightsCard title="AI providers" viewAllHref="/ai-providers">
+        {stats.aiProvidersEnabled === 0 ? (
+          <p className="sentinel-insights-empty">None configured — fully optional, everything else works without it.</p>
+        ) : (
+          <div className="sentinel-insights-list">
+            <span className="sentinel-insights-row">
+              <span className="sentinel-insights-row-main">
+                <span className="sentinel-insights-row-title">Enabled providers healthy</span>
+              </span>
+              <span className="sentinel-insights-row-end">
+                <span className="sentinel-insights-pill" data-tone={stats.aiProvidersHealthy === stats.aiProvidersEnabled ? 'ok' : 'warn'}>
+                  {stats.aiProvidersHealthy}/{stats.aiProvidersEnabled}
+                </span>
+              </span>
+            </span>
+          </div>
+        )}
+      </InsightsCard>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [ready, setReady] = useState<ReadyResponse | null>(null);
-  const [events, setEvents] = useState<AuditEvent[]>([]);
   const [stats, setStats] = useState<PipelineStats>(EMPTY_STATS);
   const [loaded, setLoaded] = useState(false);
 
@@ -447,16 +805,14 @@ export default function DashboardPage() {
     let cancelled = false;
 
     async function load() {
-      const [healthRes, readyRes, auditRes, projectsRes] = await Promise.all([
+      const [healthRes, readyRes, projectsRes] = await Promise.all([
         fetchJSON<HealthResponse>('/api/health'),
         fetchJSON<ReadyResponse>('/api/ready'),
-        fetchJSON<AuditEventsResponse>('/api/v1/audit-events?limit=10'),
         fetchJSON<ProjectsResponse>('/api/v1/projects'),
       ]);
       if (cancelled) return;
       setHealth(healthRes);
       setReady(readyRes);
-      setEvents(auditRes?.events ?? []);
 
       const projects = projectsRes?.projects ?? [];
       const pipelineStats = await loadPipelineStats(projects);
@@ -483,105 +839,29 @@ export default function DashboardPage() {
       <FlowMap stats={stats} loaded={loaded} />
 
       {loaded && stats.runningNow.length > 0 && (
-        <section className="sentinel-card" style={{ marginTop: '1rem' }}>
-          <h3 style={{ marginTop: 0 }}>
-            <span className="sentinel-pipeline-stage-live">Currently running</span>
-          </h3>
-          <table className="sentinel-table">
-            <thead>
-              <tr>
-                <th>Run</th>
-                <th>Status</th>
-                <th>Started</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stats.runningNow.map((r) => (
-                <tr key={r.id}>
-                  <td>
-                    <Link href={`/runs?project=${r.project_id}`}>{r.id}</Link>
-                  </td>
-                  <td className="sentinel-status-unknown">{r.status}</td>
-                  <td>{new Date(r.started_at).toLocaleString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
+        <InsightsCard title="Currently running" viewAllHref="/runs">
+          <div className="sentinel-insights-list">
+            {stats.runningNow.map((r) => (
+              <Link key={r.id} href={`/runs?project=${r.project_id}`} className="sentinel-insights-row">
+                <span className="sentinel-insights-dot" data-live="true" style={{ '--dot-color': 'var(--sentinel-accent)' } as CSSProperties} />
+                <span className="sentinel-insights-row-main">
+                  <span className="sentinel-insights-row-title">{r.id}</span>
+                  <span className="sentinel-insights-row-sub">started {relativeTime(r.started_at)}</span>
+                </span>
+                <span className="sentinel-insights-row-end">
+                  <span className="sentinel-insights-pill" data-tone="muted">
+                    {r.status}
+                  </span>
+                </span>
+              </Link>
+            ))}
+          </div>
+        </InsightsCard>
       )}
 
-      <div className="sentinel-grid" style={{ marginTop: '1rem' }}>
-        <div className="sentinel-card">
-          <h3>API health</h3>
-          {!loaded ? (
-            <p className="sentinel-status-unknown">checking&hellip;</p>
-          ) : (
-            <StatusBadge label="sentinel-api" ok={health?.status === 'ok'} />
-          )}
-        </div>
-
-        <div className="sentinel-card">
-          <h3>Readiness</h3>
-          {!loaded ? (
-            <p className="sentinel-status-unknown">checking&hellip;</p>
-          ) : ready ? (
-            <>
-              {Object.entries(ready.checks).map(([dep, status]) => (
-                <StatusBadge key={dep} label={dep} ok={status === 'ok'} />
-              ))}
-            </>
-          ) : (
-            <p className="sentinel-status-bad">sentinel-api unreachable</p>
-          )}
-        </div>
-
-        <div className="sentinel-card">
-          <h3>AI providers</h3>
-          {!loaded ? (
-            <p className="sentinel-status-unknown">checking&hellip;</p>
-          ) : stats.aiProvidersEnabled === 0 ? (
-            <p className="sentinel-status-unknown">
-              None configured — <Link href="/ai-providers">fully optional</Link>, everything else works without it.
-            </p>
-          ) : (
-            <p>
-              <Link href="/ai-providers">
-                {stats.aiProvidersHealthy}/{stats.aiProvidersEnabled} enabled providers healthy
-              </Link>
-            </p>
-          )}
-        </div>
+      <div style={{ marginTop: '1rem' }}>
+        <InsightsGrid stats={stats} loaded={loaded} health={health} ready={ready} />
       </div>
-
-      <section className="sentinel-card" style={{ marginTop: '1rem' }}>
-        <h3>Recent audit events</h3>
-        {!loaded ? (
-          <p className="sentinel-status-unknown">loading&hellip;</p>
-        ) : events.length === 0 ? (
-          <p className="sentinel-status-unknown">No audit events recorded yet.</p>
-        ) : (
-          <table className="sentinel-table">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Action</th>
-                <th>Resource</th>
-                <th>Actor</th>
-              </tr>
-            </thead>
-            <tbody>
-              {events.map((event) => (
-                <tr key={event.ID}>
-                  <td>{new Date(event.CreatedAt).toLocaleString()}</td>
-                  <td>{event.ActionType}</td>
-                  <td>{event.ResourceType}</td>
-                  <td>{event.Actor}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
     </>
   );
 }
