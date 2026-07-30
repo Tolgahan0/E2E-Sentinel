@@ -269,6 +269,23 @@ function flowCurve(x1: number, y1: number, x2: number, y2: number) {
   return `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`;
 }
 
+// A point on a circle's edge, `spreadDeg` degrees either side of
+// `baseDeg` (0 = rightmost point, 180 = leftmost point), for item `i`
+// of `count` — item 0 lands above center, the last item below. Used so
+// a group of connectors lands at a spread of distinct points around
+// the hub/cluster's circumference instead of every single one
+// converging on the exact same pixel, which reads as a tangled knot
+// rather than a fan (the sign flips between the two base angles: past
+// the leftmost point, increasing angle moves up; past the rightmost
+// point, increasing angle moves down — cos(baseDeg) encodes that).
+function circleFanPoint(cx: number, cy: number, r: number, baseDeg: number, spreadDeg: number, i: number, count: number) {
+  const mid = (count - 1) / 2;
+  const t = mid === 0 ? 0 : (i - mid) / mid;
+  const baseRad = (baseDeg * Math.PI) / 180;
+  const rad = baseRad + ((t * spreadDeg * Math.cos(baseRad) * Math.PI) / 180);
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+}
+
 // Deterministic "sunflower seed" scatter (golden-angle spiral) so the
 // cluster's per-run dots are stable across re-renders without resorting
 // to Math.random(), which would make them jitter on every poll.
@@ -444,7 +461,8 @@ function FlowMap({ stats, loaded }: { stats: PipelineStats; loaded: boolean }) {
         <div className="sentinel-flowmap">
           <svg viewBox={`0 0 ${FLOW_W} ${FLOW_H}`} className="sentinel-flowmap-svg" aria-hidden="true">
             {stageNodes.map((n, i) => {
-              const d = flowCurve(STAGE_ANCHOR_X, STAGE_Y[i]!, HUB_X - HUB_R + 4, HUB_Y);
+              const into = circleFanPoint(HUB_X, HUB_Y, HUB_R - 4, 180, 55, i, stageNodes.length);
+              const d = flowCurve(STAGE_ANCHOR_X, STAGE_Y[i]!, into.x, into.y);
               return (
                 <g key={`track-stage-${n.key}`} style={{ '--node-color': n.color } as CSSProperties}>
                   <path d={d} pathLength={100} className="sentinel-flowmap-track-glow" />
@@ -458,8 +476,10 @@ function FlowMap({ stats, loaded }: { stats: PipelineStats; loaded: boolean }) {
                 </g>
               );
             })}
-            {[-16, 0, 16].map((offset, i) => {
-              const d = flowCurve(HUB_X + HUB_R - 4, HUB_Y + offset * 0.4, CLUSTER_X - CLUSTER_R + 4, HUB_Y + offset);
+            {[0, 1, 2].map((i) => {
+              const out = circleFanPoint(HUB_X, HUB_Y, HUB_R - 4, 0, 22, i, 3);
+              const into = circleFanPoint(CLUSTER_X, CLUSTER_Y, CLUSTER_R - 4, 180, 18, i, 3);
+              const d = flowCurve(out.x, out.y, into.x, into.y);
               return (
                 <g key={`track-hub-cluster-${i}`} style={{ '--node-color': 'var(--sentinel-accent)' } as CSSProperties}>
                   <path d={d} pathLength={100} className="sentinel-flowmap-track-glow" />
@@ -474,7 +494,8 @@ function FlowMap({ stats, loaded }: { stats: PipelineStats; loaded: boolean }) {
               );
             })}
             {issueNodes.map((n, i) => {
-              const d = flowCurve(CLUSTER_X + CLUSTER_R - 4, CLUSTER_Y, ISSUE_ANCHOR_X, ISSUE_Y[i]!);
+              const out = circleFanPoint(CLUSTER_X, CLUSTER_Y, CLUSTER_R - 4, 0, 30, i, issueNodes.length);
+              const d = flowCurve(out.x, out.y, ISSUE_ANCHOR_X, ISSUE_Y[i]!);
               return (
                 <g key={`track-issue-${n.key}`} style={{ '--node-color': n.color } as CSSProperties}>
                   <path d={d} pathLength={100} className="sentinel-flowmap-track-glow" />
