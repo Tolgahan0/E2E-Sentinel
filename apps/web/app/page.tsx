@@ -594,6 +594,30 @@ const FIX_APPROVAL_LABEL: Record<FixProposal['approval_status'], string> = {
   rejected: 'Rejected',
 };
 
+// GET /ready's test_execution/websocket_execution is a runs.Runner's
+// raw Name() ("playwright-docker", "playwright-local", "websocket-docker",
+// "websocket-local") or "unconfigured" — translated here into a label
+// and tone that actually says what it means for isolation, rather than
+// showing the raw internal string. See docs/RUNNER_ISOLATION.md's
+// "Local process execution mode".
+function executionModeLabel(name: string): string {
+  if (name.endsWith('-docker')) return 'Docker';
+  if (name.endsWith('-local')) return 'Local process';
+  return 'Not configured';
+}
+
+function executionModeTone(name: string): 'ok' | 'warn' | 'muted' {
+  if (name.endsWith('-docker')) return 'ok';
+  if (name.endsWith('-local')) return 'warn';
+  return 'muted';
+}
+
+const EXECUTION_MODE_TONE_COLOR: Record<'ok' | 'warn' | 'muted', string> = {
+  ok: 'var(--sentinel-ok)',
+  warn: 'var(--sentinel-warn)',
+  muted: 'var(--sentinel-muted)',
+};
+
 function InsightsCard({
   title,
   viewAllHref,
@@ -789,6 +813,19 @@ function InsightsGrid({
                 </span>
               </span>
             ))}
+          {ready && (
+            <span className="sentinel-insights-row">
+              <span className="sentinel-insights-dot" style={{ '--dot-color': EXECUTION_MODE_TONE_COLOR[executionModeTone(ready.test_execution)] } as CSSProperties} />
+              <span className="sentinel-insights-row-main">
+                <span className="sentinel-insights-row-title">Execution</span>
+              </span>
+              <span className="sentinel-insights-row-end">
+                <span className="sentinel-insights-pill" data-tone={executionModeTone(ready.test_execution)}>
+                  {executionModeLabel(ready.test_execution)}
+                </span>
+              </span>
+            </span>
+          )}
         </div>
       </InsightsCard>
 

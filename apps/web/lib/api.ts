@@ -1,6 +1,12 @@
 export interface ReadyResponse {
   ready: boolean;
   checks: Record<string, string>;
+  // Which concrete runner backs test execution right now — the
+  // Name() of the configured runs.Runner (e.g. "playwright-docker",
+  // "playwright-local"), or "unconfigured" if none is. See
+  // docs/RUNNER_ISOLATION.md's "Local process execution mode".
+  test_execution: string;
+  websocket_execution: string;
 }
 
 export interface HealthResponse {

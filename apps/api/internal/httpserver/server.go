@@ -301,10 +301,24 @@ func handleReady(deps Dependencies) http.HandlerFunc {
 		}
 
 		writeJSON(w, status, map[string]any{
-			"ready":  ready,
-			"checks": checks,
+			"ready":               ready,
+			"checks":              checks,
+			"test_execution":      runnerName(deps.Runner),
+			"websocket_execution": runnerName(deps.WebSocketRunner),
 		})
 	}
+}
+
+// runnerName reports which concrete runner (if any) backs a Runner
+// field — "unconfigured" for nil, otherwise its Name() (e.g.
+// "playwright-docker", "playwright-local") — so a caller (the
+// Dashboard's System status card) can show which execution mode is
+// actually active without needing its own separate config surface.
+func runnerName(r runs.Runner) string {
+	if r == nil {
+		return "unconfigured"
+	}
+	return r.Name()
 }
 
 // handleListAuditEvents supports spec §9 "Audit search": action_type,

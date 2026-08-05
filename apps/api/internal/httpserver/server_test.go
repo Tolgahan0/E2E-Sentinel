@@ -108,6 +108,30 @@ func TestHandleReady_AllHealthy(t *testing.T) {
 	if body["ready"] != true {
 		t.Errorf("ready = %v, want true", body["ready"])
 	}
+	if body["test_execution"] != "unconfigured" {
+		t.Errorf("test_execution = %v, want \"unconfigured\" (newTestDeps leaves Runner nil)", body["test_execution"])
+	}
+	if body["websocket_execution"] != "unconfigured" {
+		t.Errorf("websocket_execution = %v, want \"unconfigured\"", body["websocket_execution"])
+	}
+}
+
+func TestHandleReady_ReportsConfiguredRunnerName(t *testing.T) {
+	deps := newTestDeps(nil, nil)
+	deps.Runner = &fakeRunner{}
+	router := NewRouter(deps)
+
+	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid JSON body: %v", err)
+	}
+	if body["test_execution"] != "fake-runner" {
+		t.Errorf("test_execution = %v, want the configured runner's Name()", body["test_execution"])
+	}
 }
 
 func TestHandleReady_DependencyDown(t *testing.T) {
