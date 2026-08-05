@@ -1,9 +1,13 @@
 # Runner Isolation
 
-Implemented as of Phase 5. Every test run executes in its own disposable
-Docker container, launched by `sentinel-api` itself over the mounted
-Docker socket (Docker-outside-of-Docker) rather than a restricted proxy —
-see [ADR-worthy trade-off](#why-a-direct-socket-mount) below.
+Implemented as of Phase 5. By default, every test run executes in its
+own disposable Docker container, launched by `sentinel-api` itself over
+the mounted Docker socket (Docker-outside-of-Docker) rather than a
+restricted proxy — see [ADR-worthy trade-off](#why-a-direct-socket-mount)
+below. `SENTINEL_EXECUTION_MODE=local` (or `auto` falling back to it
+when Docker isn't reachable) trades that isolation guarantee for
+running with no container runtime at all — see
+[Local process execution mode](#local-process-execution-mode).
 
 ## Architecture
 
@@ -114,6 +118,70 @@ unit tests, which don't touch a real daemon):
   `ENV NODE_PATH=/usr/lib/node_modules` so the bind-mounted
   `playwright.config.ts`'s `import ... from '@playwright/test'` resolves
   regardless of where it's mounted.
+
+## Local process execution mode
+
+Docker was never meant to be a hard requirement to *use* E2E Sentinel —
+only to get the strongest isolation guarantee for test execution.
+`SENTINEL_EXECUTION_MODE` (default `auto`) picks between two materially
+different trust models:
+
+- **`docker`** — always the disposable-container runners above. Never
+  falls back to anything else; if `SENTINEL_RUNNER_HOST_WORKSPACE_DIR`
+  is unset or the daemon doesn't answer a ping at startup, test
+  execution is simply unconfigured (`POST /tests/{id}/run` returns
+  `503`) rather than silently running with weaker isolation.
+- **`local`** — `LocalPlaywrightRunner`/`LocalWebSocketRunner`
+  (`internal/runs/local_*.go`) run the generated spec as a plain host
+  process (`playwright test` / `node <script>`) instead of inside a
+  container. **No per-run isolation**: the test process runs with
+  `sentinel-api`'s own privileges, on the same filesystem and network
+  namespace as wherever `sentinel-api` itself is running — a materially
+  weaker boundary than the Docker mode's disposable, resource-limited,
+  non-root container. This is the trade a machine with no Docker
+  installed at all is making, not an oversight.
+- **`auto`** (the default) — uses `docker` when
+  `SENTINEL_RUNNER_HOST_WORKSPACE_DIR` is set and the daemon actually
+  answers a ping at startup; otherwise falls back to `local`
+  automatically. Falling back silently is intentional here — Docker was
+  never a hard requirement for this mode specifically, unlike `docker`
+  requested by name above.
+
+This decision is made once at process startup (logged either way), the
+same as every other optional-capability field in this codebase (Docker
+discovery, Kubernetes discovery, AI providers) — it is not re-evaluated
+per run. Restart `sentinel-api` to pick up a Docker daemon that's since
+become reachable.
+
+**Requirements for local mode**: `playwright` and `node` resolved on
+`sentinel-api`'s own `$PATH` — install globally exactly like the runner
+images do (`npm install -g @playwright/test && npx playwright install
+--with-deps` for Playwright tests; `npm install -g ws` for WebSocket
+tests), since a per-run workspace has no `package.json`/`node_modules`
+of its own. Missing tools surface as a clear, actionable error from
+`Validate` (wrapping `ErrLocalToolMissing`) rather than a cryptic
+process-spawn failure. In practice this means local mode is realistic
+when `sentinel-api` runs as a bare host process
+([docs/LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md)) — the default
+`sentinel-api` Docker image is a `distroless` base with no shell, let
+alone Node.js, so local mode inside that same container will always
+fail its own tool check.
+
+**Cancellation is per-process, not per-daemon**: `DockerPlaywrightRunner
+.Cancel` stops a container by a deterministic name via the Docker
+daemon — external state that any process can reach. A local process has
+no equivalent external authority holding it; `LocalPlaywrightRunner`/
+`LocalWebSocketRunner` track each run's cancel function in an in-memory
+registry instead, so `Cancel` only works from the same `sentinel-api`
+process that started the run. Not a new limitation in practice — there
+is no multi-replica `sentinel-api` deployment today regardless — but
+worth knowing if that ever changes.
+
+**Mutating/load tests deserve extra caution in this mode**: the
+"disposable container, so a runaway or mutating test is contained" 
+assumption that spec §11.1 leans on doesn't hold once execution is a
+plain host process — see [docs/THREAT_MODEL.md](THREAT_MODEL.md)'s
+"Generated test code execution" row.
 
 ## Test generation
 

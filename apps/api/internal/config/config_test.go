@@ -35,6 +35,20 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.Environment != "local" {
 		t.Errorf("Environment = %q, want local", cfg.Environment)
 	}
+	if cfg.ExecutionMode != "auto" {
+		t.Errorf("ExecutionMode = %q, want auto", cfg.ExecutionMode)
+	}
+}
+
+func TestLoad_InvalidExecutionMode(t *testing.T) {
+	_, err := Load(envMap(map[string]string{
+		"SENTINEL_DATABASE_URL":   "postgres://sentinel:secret@localhost:5432/sentinel",
+		"SENTINEL_REDIS_ADDR":     "localhost:6379",
+		"SENTINEL_EXECUTION_MODE": "hybrid",
+	}))
+	if err == nil {
+		t.Fatal("expected error for invalid execution mode")
+	}
 }
 
 func TestLoad_InvalidLogLevel(t *testing.T) {

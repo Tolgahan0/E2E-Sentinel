@@ -86,6 +86,13 @@ services:
       # Docker), so bind-mount sources must be given as HOST paths — see
       # docs/RUNNER_ISOLATION.md. `make up` computes and passes this.
       SENTINEL_RUNNER_HOST_WORKSPACE_DIR: ${SENTINEL_RUNNER_HOST_WORKSPACE_DIR:?run via 'make up', which sets this to an absolute host path}
+      # docker | local | auto (default) — see docs/RUNNER_ISOLATION.md.
+      # Left at its default here: with SENTINEL_RUNNER_HOST_WORKSPACE_DIR
+      # always set (line above) and this same daemon always reachable,
+      # "auto" already resolves to "docker" for every Compose-based
+      # deployment — local mode's real use case is running sentinel-api
+      # outside Docker entirely (docs/LOCAL_DEVELOPMENT.md).
+      SENTINEL_EXECUTION_MODE: ${SENTINEL_EXECUTION_MODE:-auto}
       # Phase 6 AI providers: optional. Unset means provider API keys
       # cannot be stored, but every other feature (including configuring
       # a keyless local Ollama provider) still works — spec §16.6

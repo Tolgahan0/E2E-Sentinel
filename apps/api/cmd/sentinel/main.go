@@ -121,12 +121,29 @@ func run(migrateOnly bool) error {
 	// lifetime; stops when the shutdown signal cancels ctx.
 	go artifacts.RunRetentionLoop(ctx, artifactStore, artifacts.DefaultRetentionSweepInterval, logger)
 
-	// Test execution (Phase 5) is optional: nil until
-	// SENTINEL_RUNNER_HOST_WORKSPACE_DIR is configured, since it requires
-	// Docker-outside-of-Docker (spec §11 needs sentinel-api to launch
-	// sibling containers; see docs/RUNNER_ISOLATION.md).
-	var runner runs.Runner
-	if cfg.RunnerWorkspaceHostDir != "" {
+	// Test execution (Phase 5) mode selection (config.Config.ExecutionMode's
+	// doc comment has the exact "auto" fallback rules) — decided once at
+	// startup, same as every other optional-capability field, not
+	// re-evaluated per run. "docker" gets the disposable-container
+	// isolation guarantee (spec §11.1); "local" runs directly as a host
+	// process instead — no container, no Docker socket, materially
+	// weaker isolation (see docs/RUNNER_ISOLATION.md's "Local process
+	// execution mode").
+	useDocker := false
+	switch cfg.ExecutionMode {
+	case "docker":
+		useDocker = true
+	case "auto":
+		if cfg.RunnerWorkspaceHostDir != "" {
+			pingCtx, cancelPing := context.WithTimeout(ctx, 2*time.Second)
+			useDocker = dockerClient.Ping(pingCtx) == nil
+			cancelPing()
+		}
+	}
+
+	var runner, webSocketRunner runs.Runner
+	switch {
+	case useDocker:
 		runner = &runs.DockerPlaywrightRunner{
 			Docker:                dockerClient,
 			Image:                 cfg.RunnerImage,
@@ -136,19 +153,6 @@ func run(migrateOnly bool) error {
 			NanoCPUs:              cfg.RunnerNanoCPUs,
 			Timeout:               cfg.RunnerTimeout,
 		}
-		logger.Info().Str("image", cfg.RunnerImage).Msg("test runner configured")
-	} else {
-		logger.Info().Msg("test runner not configured (SENTINEL_RUNNER_HOST_WORKSPACE_DIR unset) — POST /tests/{id}/run will return 503")
-	}
-
-	// WebSocket adapter (Phase 11): same optional, "safe default"
-	// pattern as the Playwright runner above — nil until
-	// SENTINEL_RUNNER_HOST_WORKSPACE_DIR is configured (the two runners
-	// share the same host workspace directory, just different
-	// sub-images), so a "websocket" framework test's POST /run returns
-	// 503 independently of whether the Playwright runner is configured.
-	var webSocketRunner runs.Runner
-	if cfg.RunnerWorkspaceHostDir != "" {
 		webSocketRunner = &runs.DockerWebSocketRunner{
 			Docker:                dockerClient,
 			Image:                 cfg.WebSocketRunnerImage,
@@ -158,9 +162,18 @@ func run(migrateOnly bool) error {
 			NanoCPUs:              cfg.RunnerNanoCPUs,
 			Timeout:               cfg.RunnerTimeout,
 		}
-		logger.Info().Str("image", cfg.WebSocketRunnerImage).Msg("websocket runner configured")
-	} else {
-		logger.Info().Msg("websocket runner not configured (SENTINEL_RUNNER_HOST_WORKSPACE_DIR unset) — a websocket-framework test's POST /run will return 503")
+		logger.Info().Str("image", cfg.RunnerImage).Str("websocket_image", cfg.WebSocketRunnerImage).
+			Msg("test execution configured: docker (disposable per-run containers)")
+	case cfg.ExecutionMode == "docker":
+		// Requested explicitly but unavailable (no host workspace dir
+		// configured, or the daemon didn't answer a ping) — never
+		// silently substitute local mode's weaker isolation for what
+		// was asked for by name.
+		logger.Info().Msg("test execution not configured (SENTINEL_EXECUTION_MODE=docker but SENTINEL_RUNNER_HOST_WORKSPACE_DIR is unset or the Docker daemon is unreachable) — POST /tests/{id}/run will return 503")
+	default:
+		runner = runs.NewLocalPlaywrightRunner(cfg.RunnerWorkspaceContainerDir, cfg.RunnerTimeout)
+		webSocketRunner = runs.NewLocalWebSocketRunner(cfg.RunnerWorkspaceContainerDir, cfg.RunnerTimeout)
+		logger.Warn().Msg("test execution configured: local process (no per-run container isolation — requires `playwright`/`node` on PATH; see docs/RUNNER_ISOLATION.md)")
 	}
 
 	// AI provider API key storage (Phase 6) is optional: nil until

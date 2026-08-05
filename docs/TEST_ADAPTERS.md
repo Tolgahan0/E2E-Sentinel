@@ -44,6 +44,13 @@ struct (`Docker`, `Secrets`, `Auth`, `Kube`: one field, nil when
 unconfigured, a comment explaining what nil means). A third adapter
 would add a third named field the same way.
 
+Each of these fields is actually backed by one of *two* concrete
+implementations chosen at startup — a Docker-based runner (disposable,
+isolated container) or a local-process runner (plain host process, no
+container) — an axis orthogonal to which adapter/framework a test uses.
+See [docs/RUNNER_ISOLATION.md](RUNNER_ISOLATION.md#local-process-execution-mode)
+for `SENTINEL_EXECUTION_MODE` and what changes between the two.
+
 ## WebSocket adapter (implemented)
 
 - **Detection** (`internal/routes.KindWebSocket`,

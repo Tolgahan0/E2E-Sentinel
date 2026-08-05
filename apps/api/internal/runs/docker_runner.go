@@ -145,61 +145,12 @@ func (r *DockerPlaywrightRunner) Execute(ctx context.Context, input RunInput) (*
 	return &RunResult{ExitCode: result.StatusCode, Stdout: stdout, Stderr: stderr}, nil
 }
 
-var artifactMIMETypes = map[string]string{
-	".png":  "image/png",
-	".webm": "video/webm",
-	".zip":  "application/zip",
-}
-
-var artifactKinds = map[string]string{
-	".png":  "screenshot",
-	".webm": "video",
-	".zip":  "trace",
-}
-
 // CollectArtifacts walks the run's workspace for Playwright's own output
 // (screenshots/videos/traces, written under test-results/ when a test
 // fails — spec §10.1's "Screenshot on failure", "Video on failure").
 // Call after Execute, before Cleanup.
 func (r *DockerPlaywrightRunner) CollectArtifacts(_ context.Context, runID string) ([]ArtifactFile, error) {
-	resultsDir := filepath.Join(r.workspaceDir(runID), "test-results")
-	if _, err := os.Stat(resultsDir); os.IsNotExist(err) {
-		return nil, nil // no failures means Playwright may not have created this directory at all
-	}
-
-	var files []ArtifactFile
-	var walk func(dir string) error
-	walk = func(dir string) error {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			return fmt.Errorf("runs: reading %q: %w", dir, err)
-		}
-		for _, e := range entries {
-			full := filepath.Join(dir, e.Name())
-			if e.IsDir() {
-				if err := walk(full); err != nil {
-					return err
-				}
-				continue
-			}
-			ext := strings.ToLower(filepath.Ext(e.Name()))
-			kind, ok := artifactKinds[ext]
-			if !ok {
-				continue
-			}
-			data, err := os.ReadFile(full)
-			if err != nil {
-				return fmt.Errorf("runs: reading artifact %q: %w", full, err)
-			}
-			files = append(files, ArtifactFile{Kind: kind, MimeType: artifactMIMETypes[ext], Data: data})
-		}
-		return nil
-	}
-
-	if err := walk(resultsDir); err != nil {
-		return nil, err
-	}
-	return files, nil
+	return collectPlaywrightArtifacts(r.workspaceDir(runID))
 }
 
 // Cancel stops the run's container by its deterministic name. This

@@ -80,6 +80,20 @@ type Config struct {
 	// RunnerTimeout bounds a single test run's wall-clock time.
 	RunnerTimeout time.Duration
 
+	// ExecutionMode picks how a test actually runs: "docker" (always
+	// the disposable-container runners, spec §11.1's isolation
+	// guarantee — never falls back), "local" (always the host-process
+	// runners — no container, no Docker socket, weaker isolation, see
+	// docs/RUNNER_ISOLATION.md), or "auto" (the default: use Docker if
+	// SENTINEL_RUNNER_HOST_WORKSPACE_DIR is set and the daemon actually
+	// answers a ping at startup, otherwise fall back to local). "auto"
+	// silently choosing "local" is intentional — Docker was never a
+	// hard requirement for THIS mode; "docker" explicitly requested and
+	// unavailable is never silently downgraded, since that would change
+	// the isolation guarantee out from under a caller who asked for it
+	// specifically.
+	ExecutionMode string
+
 	// ArtifactsDir is where sentinel-api stores captured run artifacts
 	// (stdout/stderr/screenshots/videos/traces) on the local filesystem
 	// (spec §4.1 MVP storage backend).
@@ -152,6 +166,7 @@ func Load(getenv func(string) string) (Config, error) {
 		RunnerMemoryBytes:           1 << 30, // 1 GiB
 		RunnerNanoCPUs:              1_000_000_000,
 		RunnerTimeout:               2 * time.Minute,
+		ExecutionMode:               firstNonEmpty(strings.ToLower(getenv("SENTINEL_EXECUTION_MODE")), "auto"),
 		ArtifactsDir:                firstNonEmpty(getenv("SENTINEL_ARTIFACTS_DIR"), "/data/artifacts"),
 		SecretEncryptionKey:         strings.TrimSpace(getenv("SENTINEL_SECRET_ENCRYPTION_KEY")),
 		OllamaAutoDetectURL:         firstNonEmpty(getenv("SENTINEL_OLLAMA_AUTODETECT_URL"), "http://host.docker.internal:11434"),
@@ -209,6 +224,12 @@ func (c Config) validate() error {
 	case "debug", "info", "warn", "error":
 	default:
 		return fmt.Errorf("config: invalid SENTINEL_LOG_LEVEL %q (want debug|info|warn|error)", c.LogLevel)
+	}
+
+	switch c.ExecutionMode {
+	case "docker", "local", "auto":
+	default:
+		return fmt.Errorf("config: invalid SENTINEL_EXECUTION_MODE %q (want docker|local|auto)", c.ExecutionMode)
 	}
 
 	return nil

@@ -49,14 +49,29 @@ SENTINEL_MIGRATIONS_DIR="../../migrations" \
 go run ./cmd/sentinel
 ```
 
-Running this way, test execution (Phase 5) works with less ceremony
-than in Docker: since the process runs directly on your host (not
-Docker-outside-of-Docker), `SENTINEL_RUNNER_WORKSPACE_DIR` and
-`SENTINEL_RUNNER_HOST_WORKSPACE_DIR` can both point at the same real
-path, e.g. `SENTINEL_RUNNER_WORKSPACE_DIR=/tmp/sentinel-runs
-SENTINEL_RUNNER_HOST_WORKSPACE_DIR=/tmp/sentinel-runs`. You'll still need
-`e2e-sentinel-playwright-runner:latest` built once
-(`docker compose build playwright-runner`).
+Test execution (Phase 5) has two options running this way:
+
+- **Still via Docker** (disposable, isolated containers — the stronger
+  guarantee, see [docs/RUNNER_ISOLATION.md](RUNNER_ISOLATION.md)): works
+  with less ceremony than the full Docker Compose setup, since the
+  process runs directly on your host (not Docker-outside-of-Docker),
+  `SENTINEL_RUNNER_WORKSPACE_DIR` and `SENTINEL_RUNNER_HOST_WORKSPACE_DIR`
+  can both point at the same real path, e.g.
+  `SENTINEL_RUNNER_WORKSPACE_DIR=/tmp/sentinel-runs
+  SENTINEL_RUNNER_HOST_WORKSPACE_DIR=/tmp/sentinel-runs`. You'll still
+  need `e2e-sentinel-playwright-runner:latest` built once
+  (`docker compose build playwright-runner`), and Docker Desktop/Engine
+  running.
+- **No Docker at all** — set `SENTINEL_EXECUTION_MODE=local`, install
+  `playwright`/`node` globally on your machine (`npm install -g
+  @playwright/test && npx playwright install --with-deps`, plus `npm
+  install -g ws` for WebSocket-framework tests), and leave
+  `SENTINEL_RUNNER_HOST_WORKSPACE_DIR` unset entirely —
+  `SENTINEL_RUNNER_WORKSPACE_DIR` alone (e.g.
+  `/tmp/sentinel-runs`) is enough. Tests then run as plain host
+  processes with **no per-run isolation** — see
+  [docs/RUNNER_ISOLATION.md](RUNNER_ISOLATION.md#local-process-execution-mode)
+  before relying on this beyond a single trusted developer machine.
 
 In another:
 

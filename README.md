@@ -401,6 +401,13 @@ happens (writing generated tests, applying patches, restarting services,
 pushing branches, etc.). See [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md)
 and [SECURITY.md](SECURITY.md).
 
+Docker is the default and recommended way to actually *execute* a test
+(a disposable, resource-limited container per run), but not a hard
+requirement — `SENTINEL_EXECUTION_MODE=local` runs a test as a plain
+host process instead, no container runtime needed at all, trading away
+per-run isolation to do it. See
+[docs/RUNNER_ISOLATION.md](docs/RUNNER_ISOLATION.md#local-process-execution-mode).
+
 ## If something looks stuck or wrong
 
 Check [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) first — it

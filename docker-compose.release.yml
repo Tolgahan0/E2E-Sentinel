@@ -74,6 +74,8 @@ services:
       SENTINEL_LOG_LEVEL: ${SENTINEL_LOG_LEVEL:-info}
       SENTINEL_ENVIRONMENT: ${SENTINEL_ENVIRONMENT:-local}
       SENTINEL_RUNNER_HOST_WORKSPACE_DIR: ${SENTINEL_RUNNER_HOST_WORKSPACE_DIR:?run via install.sh, which sets this to an absolute host path}
+      # docker | local | auto (default) — see docs/RUNNER_ISOLATION.md.
+      SENTINEL_EXECUTION_MODE: ${SENTINEL_EXECUTION_MODE:-auto}
       SENTINEL_RUNNER_IMAGE: ${SENTINEL_RUNNER_IMAGE:-${SENTINEL_IMAGE_REGISTRY:-ghcr.io/tolgahan0}/e2e-sentinel-playwright-runner:${SENTINEL_VERSION:-latest}}
       SENTINEL_WEBSOCKET_RUNNER_IMAGE: ${SENTINEL_WEBSOCKET_RUNNER_IMAGE:-${SENTINEL_IMAGE_REGISTRY:-ghcr.io/tolgahan0}/e2e-sentinel-websocket-runner:${SENTINEL_VERSION:-latest}}
       SENTINEL_SECRET_ENCRYPTION_KEY: ${SENTINEL_SECRET_ENCRYPTION_KEY:-}
