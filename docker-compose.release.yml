@@ -6,7 +6,19 @@
 # This is the release counterpart to docker-compose.yml (which builds
 # every image from source for local development) — same services, same
 # volumes, same environment variables; only `build:` becomes `image:`.
-name: e2e-sentinel
+#
+# Deliberately a DIFFERENT Compose project name than docker-compose.yml
+# (not just "e2e-sentinel" again): Compose scopes volumes/networks/
+# container names by project name, not by directory — sharing a name
+# means a release install and a source checkout on the same machine
+# silently reuse each other's Postgres volume. Since each generates its
+# own random POSTGRES_PASSWORD independently (install.sh vs. `cp
+# .env.example .env`), whichever one initialized the volume "wins" and
+# the other fails a confusing SASL auth error — found live while
+# verifying this file against a real release. Ports (8080/9090/5432/
+# 6379) are still shared and will still conflict if both run at once —
+# an unsurprising "this port is taken" failure, not a silent one.
+name: e2e-sentinel-release
 
 services:
   postgres:
