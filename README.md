@@ -79,6 +79,27 @@ make down        # stop the stack
 Either way, see [docs/QUICKSTART.md](docs/QUICKSTART.md) for the full
 details of both install paths.
 
+### Using an AI coding assistant on your own project?
+
+If you have Claude Code, Cursor, Codex, Copilot, or similar open in your
+own project's directory, you don't need to run any of the above
+yourself — paste this and let it do the work:
+
+> Set up [E2E Sentinel](https://github.com/Tolgahan0/E2E-Sentinel) (a
+> self-hosted, AI-assisted QA testing platform) for this project:
+>
+> 1. `curl -fsSL https://raw.githubusercontent.com/Tolgahan0/E2E-Sentinel/main/install.sh | bash`
+> 2. `cd e2e-sentinel && ./scripts/onboard.sh <absolute path to this project>`
+> 3. Open the panel URL it prints and tell me what's there.
+
+That's the entire integration: it installs E2E Sentinel from pre-built
+images (only Docker is required, no Go/Node toolchain), registers your
+project, and runs discovery — the same steps described above, just run
+for you. From there, follow the [step-by-step](#step-by-step) flow
+below: review the generated test plan, approve what you want to run,
+and let it turn real failures into reviewable bug reports and fix
+proposals.
+
 ### Add your own project in one command
 
 No AI coding assistant needed for this part — it's a plain script:
