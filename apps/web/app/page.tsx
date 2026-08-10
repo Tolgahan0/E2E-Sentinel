@@ -287,6 +287,49 @@ function circleFanPoint(cx: number, cy: number, r: number, baseDeg: number, spre
   return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
 }
 
+// Same fan point as circleFanPoint, plus a control point further out
+// along the same ray (radius + controlDist). flowCurve's bezier always
+// arrives/departs horizontally, which only matches a circle's true
+// radial direction at the 0deg/180deg extremes — every fanned point in
+// between meets the circle at an angle, so the curve clips across the
+// boundary instead of plugging into it. That's invisible against a
+// fully opaque hub fill (the mismatch is hidden behind it), but not
+// against the Pass Rate cluster's translucent outer ring. Using this
+// control point instead of a flat one aligns the curve's tangent with
+// the true radius, so it enters/leaves along the ring instead of
+// across it.
+function circleFanPointWithControl(
+  cx: number,
+  cy: number,
+  r: number,
+  baseDeg: number,
+  spreadDeg: number,
+  i: number,
+  count: number,
+  controlDist: number,
+) {
+  const mid = (count - 1) / 2;
+  const t = mid === 0 ? 0 : (i - mid) / mid;
+  const baseRad = (baseDeg * Math.PI) / 180;
+  const rad = baseRad + ((t * spreadDeg * Math.cos(baseRad) * Math.PI) / 180);
+  const point = { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+  const control = { x: cx + (r + controlDist) * Math.cos(rad), y: cy + (r + controlDist) * Math.sin(rad) };
+  return { point, control };
+}
+
+// flowCurve variants for a circle-side endpoint whose tangent should
+// follow circleFanPointWithControl's radial control point rather than
+// the flat horizontal one flowCurve's midpoint control produces.
+function flowCurveEnteringCircle(x1: number, y1: number, target: { point: { x: number; y: number }; control: { x: number; y: number } }) {
+  const midX = x1 + (target.point.x - x1) / 2;
+  return `M ${x1} ${y1} C ${midX} ${y1}, ${target.control.x} ${target.control.y}, ${target.point.x} ${target.point.y}`;
+}
+
+function flowCurveLeavingCircle(source: { point: { x: number; y: number }; control: { x: number; y: number } }, x2: number, y2: number) {
+  const midX = source.point.x + (x2 - source.point.x) / 2;
+  return `M ${source.point.x} ${source.point.y} C ${source.control.x} ${source.control.y}, ${midX} ${y2}, ${x2} ${y2}`;
+}
+
 // Deterministic "sunflower seed" scatter (golden-angle spiral) so the
 // cluster's per-run dots are stable across re-renders without resorting
 // to Math.random(), which would make them jitter on every poll.
@@ -479,8 +522,8 @@ function FlowMap({ stats, loaded }: { stats: PipelineStats; loaded: boolean }) {
             })}
             {[0, 1, 2].map((i) => {
               const out = circleFanPoint(HUB_X, HUB_Y, HUB_R - 4, 0, 22, i, 3);
-              const into = circleFanPoint(CLUSTER_X, CLUSTER_Y, CLUSTER_R + 2, 180, 18, i, 3);
-              const d = flowCurve(out.x, out.y, into.x, into.y);
+              const into = circleFanPointWithControl(CLUSTER_X, CLUSTER_Y, CLUSTER_R + 6, 180, 18, i, 3, 70);
+              const d = flowCurveEnteringCircle(out.x, out.y, into);
               return (
                 <g key={`track-hub-cluster-${i}`} style={{ '--node-color': 'var(--sentinel-accent)' } as CSSProperties}>
                   <path d={d} pathLength={100} className="sentinel-flowmap-track-glow" />
@@ -495,8 +538,8 @@ function FlowMap({ stats, loaded }: { stats: PipelineStats; loaded: boolean }) {
               );
             })}
             {issueNodes.map((n, i) => {
-              const out = circleFanPoint(CLUSTER_X, CLUSTER_Y, CLUSTER_R + 2, 0, 30, i, issueNodes.length);
-              const d = flowCurve(out.x, out.y, ISSUE_ANCHOR_X, ISSUE_Y[i]!);
+              const out = circleFanPointWithControl(CLUSTER_X, CLUSTER_Y, CLUSTER_R + 6, 0, 30, i, issueNodes.length, 70);
+              const d = flowCurveLeavingCircle(out, ISSUE_ANCHOR_X, ISSUE_Y[i]!);
               return (
                 <g key={`track-issue-${n.key}`} style={{ '--node-color': n.color } as CSSProperties}>
                   <path d={d} pathLength={100} className="sentinel-flowmap-track-glow" />
