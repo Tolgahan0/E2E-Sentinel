@@ -141,6 +141,23 @@ type Config struct {
 	// list) — set this when the deployment's ClusterRole/RoleBinding is
 	// itself namespace-scoped, since a cluster-wide list would just 403.
 	KubeNamespace string
+
+	// Version is this deployment's version label. A release install
+	// passes through the same tag (e.g. "v1.2.3") its images were
+	// pulled at (see docker-compose.release.yml/install.sh); a source
+	// checkout built via `make up` has no release tag, hence the "dev"
+	// default. Surfaced at GET /version, purely for display — never
+	// used to decide behavior.
+	Version string
+
+	// UpdateCheckEnabled turns on a periodic, read-only check against
+	// GitHub's public Releases API (internal/updatecheck) to see
+	// whether a newer version exists than Version — surfaced at GET
+	// /version for the panel's Dashboard and scripts/onboard.sh to
+	// read. Defaults to true: it sends nothing but a GET request (no
+	// project data, no telemetry); set to false for an air-gapped
+	// deployment with no outbound internet access.
+	UpdateCheckEnabled bool
 }
 
 // Load reads configuration from environment variables and validates it.
@@ -175,6 +192,8 @@ func Load(getenv func(string) string) (Config, error) {
 		AdminPassword:               getenv("SENTINEL_ADMIN_PASSWORD"),
 		KubeConfigPath:              strings.TrimSpace(getenv("SENTINEL_KUBE_CONFIG_PATH")),
 		KubeNamespace:               strings.TrimSpace(getenv("SENTINEL_KUBE_NAMESPACE")),
+		Version:                     firstNonEmpty(strings.TrimSpace(getenv("SENTINEL_VERSION")), "dev"),
+		UpdateCheckEnabled:          true,
 	}
 
 	if raw := getenv("SENTINEL_AUTH_ENABLED"); raw != "" {
@@ -183,6 +202,14 @@ func Load(getenv func(string) string) (Config, error) {
 			return Config{}, fmt.Errorf("config: invalid SENTINEL_AUTH_ENABLED: %w", err)
 		}
 		cfg.AuthEnabled = enabled
+	}
+
+	if raw := getenv("SENTINEL_UPDATE_CHECK_ENABLED"); raw != "" {
+		enabled, err := strconv.ParseBool(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("config: invalid SENTINEL_UPDATE_CHECK_ENABLED: %w", err)
+		}
+		cfg.UpdateCheckEnabled = enabled
 	}
 
 	if raw := getenv("SENTINEL_SHUTDOWN_TIMEOUT_SECONDS"); raw != "" {

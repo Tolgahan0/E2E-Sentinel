@@ -32,6 +32,7 @@ import (
 	"e2e-sentinel/apps/api/internal/secretstore"
 	"e2e-sentinel/apps/api/internal/services"
 	"e2e-sentinel/apps/api/internal/settings"
+	"e2e-sentinel/apps/api/internal/updatecheck"
 	"e2e-sentinel/apps/api/internal/webhooks"
 )
 
@@ -123,7 +124,20 @@ type Dependencies struct {
 	// KubeNamespace scopes discovery to one namespace; empty means
 	// cluster-wide.
 	KubeNamespace string
-	Logger        zerolog.Logger
+	// Version is this deployment's version label (config.Config.Version
+	// — "dev" for a source build, the release tag otherwise). Always
+	// set; never empty.
+	Version string
+	// UpdateCheck is always set — a Store starts out reporting no
+	// update available even if SENTINEL_UPDATE_CHECK_ENABLED is false,
+	// so GET /version never needs a nil check.
+	UpdateCheck *updatecheck.Store
+	// UpdateCheckEnabled mirrors config.Config.UpdateCheckEnabled —
+	// GET /version surfaces it so the panel can tell "checked, up to
+	// date" apart from "checking is turned off", rather than treating
+	// both the same way.
+	UpdateCheckEnabled bool
+	Logger             zerolog.Logger
 }
 
 // NewRouter builds the chi router for the API.
@@ -147,6 +161,10 @@ func NewRouter(deps Dependencies) http.Handler {
 
 	r.Get("/health", handleHealth)
 	r.Get("/ready", handleReady(deps))
+	// Unauthenticated, like /health and /ready — a version string and
+	// whether a newer one exists is not sensitive, and the panel's
+	// Dashboard needs it before a user has logged in.
+	r.Get("/version", handleVersion(deps))
 	// Unauthenticated, like /health and /ready — a scrape target is
 	// conventionally reached by an internal collector, not a browser
 	// user; firewall it the same way as the rest of this deployment
@@ -305,6 +323,28 @@ func handleReady(deps Dependencies) http.HandlerFunc {
 			"checks":              checks,
 			"test_execution":      runnerName(deps.Runner),
 			"websocket_execution": runnerName(deps.WebSocketRunner),
+		})
+	}
+}
+
+// handleVersion reports this deployment's own version and, if
+// SENTINEL_UPDATE_CHECK_ENABLED (default true) hasn't been turned off,
+// the latest version published on GitHub Releases and whether it's
+// newer — read by the panel's Dashboard (a small "update available"
+// banner) and scripts/onboard.sh (a printed notice). update_available
+// only ever means "a newer released version exists to look at"; it is
+// never acted on automatically.
+func handleVersion(deps Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		info := deps.UpdateCheck.Get()
+		writeJSON(w, http.StatusOK, map[string]any{
+			"current_version":      deps.Version,
+			"latest_version":       info.LatestVersion,
+			"update_available":     info.UpdateAvailable,
+			"release_url":          info.ReleaseURL,
+			"checked_at":           info.CheckedAt,
+			"check_error":          info.CheckError,
+			"update_check_enabled": deps.UpdateCheckEnabled,
 		})
 	}
 }

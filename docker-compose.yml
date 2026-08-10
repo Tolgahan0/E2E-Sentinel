@@ -110,6 +110,14 @@ services:
       # docs/KUBERNETES_DISCOVERY.md.
       SENTINEL_KUBE_CONFIG_PATH: ${SENTINEL_KUBE_CONFIG_PATH:-}
       SENTINEL_KUBE_NAMESPACE: ${SENTINEL_KUBE_NAMESPACE:-}
+      # A source checkout built via `make up` has no release tag to
+      # report — "dev" (never SENTINEL_VERSION's release-tag meaning in
+      # docker-compose.release.yml) makes GET /version's update
+      # comparison a no-op instead of a false positive/negative.
+      SENTINEL_VERSION: dev
+      # Set to "false" to disable the periodic GitHub Releases check
+      # entirely (e.g. no outbound internet access in this environment).
+      SENTINEL_UPDATE_CHECK_ENABLED: ${SENTINEL_UPDATE_CHECK_ENABLED:-true}
     volumes:
       - ./migrations:/app/migrations:ro
       # Target repositories to discover/test must be reachable inside this

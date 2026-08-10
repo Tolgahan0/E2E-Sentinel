@@ -13,6 +13,16 @@ export interface HealthResponse {
   status: string;
 }
 
+export interface VersionResponse {
+  current_version: string;
+  latest_version: string;
+  update_available: boolean;
+  release_url: string;
+  checked_at: string;
+  check_error: string;
+  update_check_enabled: boolean;
+}
+
 export interface AuditEvent {
   ID: string;
   ActionType: string;

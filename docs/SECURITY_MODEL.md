@@ -224,6 +224,15 @@ as each phase introduces the surface they apply to.
   `exec`/`auth-provider` credential plugin is rejected with a clear
   startup error rather than silently attempting (and failing) a partial
   connection.
+- **Update checking is read-only and opt-out.** `internal/updatecheck`
+  issues a GET against `api.github.com/repos/<repo>/releases/latest`
+  on a fixed interval (`updatecheck.DefaultInterval`, 6h) — no project
+  data, credentials, or telemetry of any kind is sent; the only outbound
+  payload is the request itself. `SENTINEL_UPDATE_CHECK_ENABLED`
+  defaults to `true`; set it to `false` for a fully air-gapped
+  deployment. A failed check (`check_error` in `GET /version`'s
+  response) is reported as-is, never silently reinterpreted as "no
+  update available" — an air-gapped operator can tell the two apart.
 
 ## Not yet implemented
 

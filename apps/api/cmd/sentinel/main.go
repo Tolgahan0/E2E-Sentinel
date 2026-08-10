@@ -36,6 +36,7 @@ import (
 	"e2e-sentinel/apps/api/internal/secretstore"
 	"e2e-sentinel/apps/api/internal/services"
 	"e2e-sentinel/apps/api/internal/settings"
+	"e2e-sentinel/apps/api/internal/updatecheck"
 	"e2e-sentinel/apps/api/internal/webhooks"
 )
 
@@ -241,38 +242,53 @@ func run(migrateOnly bool) error {
 		logger.Info().Str("namespace", logLabel).Msg("kubernetes discovery configured")
 	}
 
+	// Update checking (GET /version) is opt-out: SENTINEL_UPDATE_CHECK_ENABLED
+	// defaults to true and only ever performs a GET against GitHub's
+	// public Releases API — no project data leaves the process. An
+	// air-gapped deployment sets it to false; the store then just
+	// reports the current version with no comparison performed.
+	updateStore := updatecheck.NewStore(cfg.Version)
+	if cfg.UpdateCheckEnabled {
+		go updatecheck.RunLoop(ctx, updateStore, &http.Client{Timeout: 10 * time.Second}, updatecheck.DefaultRepo, cfg.Version, updatecheck.DefaultInterval, logger)
+	} else {
+		logger.Info().Msg("update checking disabled (SENTINEL_UPDATE_CHECK_ENABLED=false) — GET /version will report the current version only")
+	}
+
 	router := httpserver.NewRouter(httpserver.Dependencies{
-		Postgres:         httpserver.PostgresPinger{Pool: pgPool},
-		Redis:            httpserver.RedisPinger{Client: redisClient},
-		Audit:            recorder,
-		Projects:         projects.NewPostgresStore(pgPool),
-		Environments:     environments.NewPostgresStore(pgPool),
-		Discovery:        discovery.NewPostgresStore(pgPool),
-		Services:         services.NewPostgresStore(pgPool),
-		Graph:            graph.NewPostgresStore(pgPool),
-		Planning:         planning.NewPostgresStore(pgPool),
-		Runs:             runs.NewPostgresStore(pgPool),
-		Artifacts:        artifactStore,
-		Providers:        providers.NewPostgresStore(pgPool),
-		Settings:         settings.NewPostgresStore(pgPool),
-		Failures:         failures.NewPostgresStore(pgPool),
-		Bugs:             bugreports.NewPostgresStore(pgPool),
-		FixProposals:     fixproposals.NewPostgresStore(pgPool),
-		ProviderHealth:   providers.NewHealthChecker(nil),
-		Completer:        providers.NewCompleter(nil),
-		FixWorkspacesDir: cfg.FixWorkspacesDir,
-		Docker:           dockerClient,
-		Runner:           runner,
-		WebSocketRunner:  webSocketRunner,
-		Kube:             kubeAPI,
-		KubeResources:    kubediscovery.NewPostgresStore(pgPool),
-		KubeNamespace:    kubeNamespace,
-		Secrets:          secretStore,
-		Auth:             authStore,
-		AuthEnabled:      cfg.AuthEnabled,
-		Metrics:          metrics.NewAppMetrics(metrics.NewRegistry()),
-		Webhooks:         webhooks.NewSender(),
-		Logger:           logger,
+		Postgres:           httpserver.PostgresPinger{Pool: pgPool},
+		Redis:              httpserver.RedisPinger{Client: redisClient},
+		Audit:              recorder,
+		Projects:           projects.NewPostgresStore(pgPool),
+		Environments:       environments.NewPostgresStore(pgPool),
+		Discovery:          discovery.NewPostgresStore(pgPool),
+		Services:           services.NewPostgresStore(pgPool),
+		Graph:              graph.NewPostgresStore(pgPool),
+		Planning:           planning.NewPostgresStore(pgPool),
+		Runs:               runs.NewPostgresStore(pgPool),
+		Artifacts:          artifactStore,
+		Providers:          providers.NewPostgresStore(pgPool),
+		Settings:           settings.NewPostgresStore(pgPool),
+		Failures:           failures.NewPostgresStore(pgPool),
+		Bugs:               bugreports.NewPostgresStore(pgPool),
+		FixProposals:       fixproposals.NewPostgresStore(pgPool),
+		ProviderHealth:     providers.NewHealthChecker(nil),
+		Completer:          providers.NewCompleter(nil),
+		FixWorkspacesDir:   cfg.FixWorkspacesDir,
+		Docker:             dockerClient,
+		Runner:             runner,
+		WebSocketRunner:    webSocketRunner,
+		Kube:               kubeAPI,
+		KubeResources:      kubediscovery.NewPostgresStore(pgPool),
+		KubeNamespace:      kubeNamespace,
+		Secrets:            secretStore,
+		Auth:               authStore,
+		AuthEnabled:        cfg.AuthEnabled,
+		Metrics:            metrics.NewAppMetrics(metrics.NewRegistry()),
+		Webhooks:           webhooks.NewSender(),
+		Version:            cfg.Version,
+		UpdateCheck:        updateStore,
+		UpdateCheckEnabled: cfg.UpdateCheckEnabled,
+		Logger:             logger,
 	})
 
 	server := &http.Server{

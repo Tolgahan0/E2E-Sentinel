@@ -45,6 +45,7 @@ apps/api (Go, chi router)
   +-- internal/metrics       Hand-rolled Prometheus-format counters/gauges (spec §22)
   +-- internal/kubeclient    Hand-rolled read-only Kubernetes API client (spec §7.5, opt-in)
   +-- internal/kubediscovery Kubernetes resource discovery + pod/workload correlation (spec §7.5)
+  +-- internal/updatecheck   Periodic GitHub Releases version check (opt-out, read-only)
   +-- internal/httpserver    HTTP handlers
   |
   +-- PostgreSQL
@@ -52,6 +53,7 @@ apps/api (Go, chi router)
   +-- Docker daemon (required for Phase 5 test execution; optional otherwise)
   +-- disposable Playwright runner containers (Phase 5)
   +-- AI provider APIs (Phase 6; optional, never required)
+  +-- GitHub Releases API (read-only, opt-out; internal/updatecheck)
 ```
 
 Future phases add sibling packages under `internal/` — `scheduler/` —

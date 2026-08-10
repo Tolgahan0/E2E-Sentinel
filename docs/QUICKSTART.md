@@ -25,6 +25,13 @@ or `main` if none exist yet), and starts the stack via
 `http://localhost:9090` and `./e2e-sentinel/scripts/onboard.sh` is
 ready to use exactly as described below.
 
+The same `SENTINEL_VERSION` is also passed into the running
+`sentinel-api` container, so it knows its own version — `GET /version`
+compares it against GitHub Releases and surfaces "an update is
+available" on the panel's Dashboard and from `scripts/onboard.sh`
+(read-only, opt-out via `SENTINEL_UPDATE_CHECK_ENABLED=false`). See
+[README.md#staying-up-to-date](../README.md#staying-up-to-date).
+
 To stop it: `cd e2e-sentinel && docker compose -f docker-compose.release.yml down`
 (add `-v` only if you also want to delete the Postgres data).
 

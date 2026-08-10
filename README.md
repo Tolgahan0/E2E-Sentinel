@@ -2,6 +2,11 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
+```bash
+curl -fsSL https://raw.githubusercontent.com/Tolgahan0/E2E-Sentinel/main/install.sh | bash
+open http://localhost:9090  # the panel
+```
+
 E2E Sentinel is a self-hosted, AI-assisted quality engineering platform. It
 discovers a repository and its runtime architecture, produces a reviewable
 test inventory and risk-based E2E test plan, generates and executes tests
@@ -78,6 +83,24 @@ make down        # stop the stack
 
 Either way, see [docs/QUICKSTART.md](docs/QUICKSTART.md) for the full
 details of both install paths.
+
+### Staying up to date
+
+`sentinel-api` checks GitHub Releases for a newer version every few
+hours (read-only, no project data leaves the process — see
+`internal/updatecheck`) and exposes the result at `GET /version`. You'll
+see it in two places without having to check manually:
+
+- **Panel**: a banner on the Dashboard when a newer version is out, plus
+  the current version in the "System status" card.
+- **CLI**: `./scripts/onboard.sh` prints a one-line notice at the end of
+  its output if an update is available.
+
+To actually update, re-run the same install command from
+[Getting started](#getting-started) above (`install.sh` re-pulls the
+latest images) or, for a source checkout, `git pull && make up`. Set
+`SENTINEL_UPDATE_CHECK_ENABLED=false` in `.env` to turn this off entirely
+(e.g. an air-gapped deployment with no outbound internet access).
 
 ### Using an AI coding assistant on your own project?
 
@@ -374,6 +397,11 @@ its own failure/bug trail.
   example ships at `deploy/k8s/read-only-clusterrole.yaml`; a partial RBAC
   restriction or a missing CRD degrades to a warning, never a failed
   request.
+- **Update checking**: opt-out (`SENTINEL_UPDATE_CHECK_ENABLED`, on by
+  default) periodic check against GitHub's public Releases API —
+  read-only, sends no project data. Surfaced at `GET /version`, a
+  Dashboard banner when a newer version is out, and a one-line notice
+  from `scripts/onboard.sh`; never downloads or applies anything itself.
 - **WebSocket test adapter** (one of spec §25 Phase 11's eight tools —
   see [docs/TEST_ADAPTERS.md](docs/TEST_ADAPTERS.md) for why the other
   seven are documented as deferred instead of built): repository scan

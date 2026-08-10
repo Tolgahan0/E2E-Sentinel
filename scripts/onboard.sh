@@ -192,6 +192,23 @@ fi
 echo "==> Running discovery"
 api_curl -X POST "${SENTINEL_URL}/api/v1/projects/${PROJECT_ID}/discover" >/dev/null
 
+# --- 5. is a newer E2E Sentinel version available? ----------------------
+# GET /version is unauthenticated, like /health and /ready (see
+# httpserver.handleVersion) — a read-only check against GitHub's public
+# Releases API, never acted on automatically. Best-effort: a curl
+# failure here (older sentinel-api without this route, no network) must
+# never fail onboarding itself.
+UPDATE_NOTICE=""
+VERSION_RESPONSE="$(curl -sf "${SENTINEL_URL}/version" 2>/dev/null || true)"
+if [ -n "$VERSION_RESPONSE" ]; then
+  UPDATE_NOTICE="$(python3 -c "
+import json, sys
+data = json.loads(sys.argv[1])
+if data.get('update_available'):
+    print(f\"A newer E2E Sentinel version is available: {data.get('latest_version')} (running {data.get('current_version')}). See {data.get('release_url')}\")
+" "$VERSION_RESPONSE" 2>/dev/null || true)"
+fi
+
 WEB_URL="${SENTINEL_WEB_URL:-http://localhost:9090}"
 cat <<EOF
 
@@ -206,3 +223,8 @@ http://host.docker.internal:<port>, not a Docker Compose service name;
 see docs/RUNNER_ISOLATION.md), generate a test plan (Test Inventory
 page), and approve what you want to run.
 EOF
+
+if [ -n "$UPDATE_NOTICE" ]; then
+  echo ""
+  echo "⚠ ${UPDATE_NOTICE}"
+fi

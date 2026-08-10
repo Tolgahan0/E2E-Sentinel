@@ -133,6 +133,30 @@ a {
   margin-top: 1rem;
 }
 
+/* A newer version is available (GET /version, checked against GitHub
+   Releases — see internal/updatecheck). Only rendered at all when
+   update_available is true, so it never competes for attention with
+   the rest of the Dashboard on an up-to-date install. */
+.sentinel-update-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid rgba(var(--sentinel-warn-rgb), 0.35);
+  background: rgba(var(--sentinel-warn-rgb), 0.1);
+  border-radius: 10px;
+  color: var(--sentinel-text);
+}
+
+.sentinel-update-banner a {
+  color: var(--sentinel-warn);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 /* Below-the-fold dashboard insights: four ranked-list columns (top
    projects by open bugs, latest runs, top bugs, latest fix proposals)
    — the same "scan the summary, not a generic log" structure as the

@@ -27,6 +27,7 @@ import (
 	"e2e-sentinel/apps/api/internal/runs"
 	"e2e-sentinel/apps/api/internal/services"
 	"e2e-sentinel/apps/api/internal/settings"
+	"e2e-sentinel/apps/api/internal/updatecheck"
 	"e2e-sentinel/apps/api/internal/webhooks"
 )
 
@@ -36,34 +37,37 @@ func (f fakePinger) Ping(ctx context.Context) error { return f.err }
 
 func newTestDeps(pgErr, redisErr error) Dependencies {
 	return Dependencies{
-		Postgres:         fakePinger{err: pgErr},
-		Redis:            fakePinger{err: redisErr},
-		Audit:            audit.NewMemoryRecorder(),
-		Projects:         projects.NewMemoryStore(),
-		Environments:     environments.NewMemoryStore(),
-		Discovery:        discovery.NewMemoryStore(),
-		Services:         services.NewMemoryStore(),
-		Graph:            graph.NewMemoryStore(),
-		Planning:         planning.NewMemoryStore(),
-		Runs:             runs.NewMemoryStore(),
-		Artifacts:        artifacts.NewMemoryStore(),
-		Providers:        providers.NewMemoryStore(),
-		Settings:         settings.NewMemoryStore(),
-		Failures:         failures.NewMemoryStore(),
-		Bugs:             bugreports.NewMemoryStore(),
-		FixProposals:     fixproposals.NewMemoryStore(),
-		ProviderHealth:   providers.NewHealthChecker(nil),
-		Completer:        providers.NewCompleter(nil),
-		FixWorkspacesDir: testFixWorkspacesDir(),
-		Docker:           nil, // no Docker daemon in unit tests; must degrade gracefully
-		Runner:           nil, // no runner configured by default; see fakeRunner in runs_handlers_test.go
-		Secrets:          nil, // no encryption key configured by default; see providers_handlers_test.go
-		Auth:             auth.NewMemoryStore(),
-		AuthEnabled:      false, // opt-in; see auth_handlers_test.go for AuthEnabled: true coverage
-		Metrics:          metrics.NewAppMetrics(metrics.NewRegistry()),
-		Kube:             nil, // no kubeconfig configured by default; see kube_handlers_test.go for a fake API
-		KubeResources:    kubediscovery.NewMemoryStore(),
-		Webhooks:         webhooks.NewSender(),
+		Postgres:           fakePinger{err: pgErr},
+		Redis:              fakePinger{err: redisErr},
+		Audit:              audit.NewMemoryRecorder(),
+		Projects:           projects.NewMemoryStore(),
+		Environments:       environments.NewMemoryStore(),
+		Discovery:          discovery.NewMemoryStore(),
+		Services:           services.NewMemoryStore(),
+		Graph:              graph.NewMemoryStore(),
+		Planning:           planning.NewMemoryStore(),
+		Runs:               runs.NewMemoryStore(),
+		Artifacts:          artifacts.NewMemoryStore(),
+		Providers:          providers.NewMemoryStore(),
+		Settings:           settings.NewMemoryStore(),
+		Failures:           failures.NewMemoryStore(),
+		Bugs:               bugreports.NewMemoryStore(),
+		FixProposals:       fixproposals.NewMemoryStore(),
+		ProviderHealth:     providers.NewHealthChecker(nil),
+		Completer:          providers.NewCompleter(nil),
+		FixWorkspacesDir:   testFixWorkspacesDir(),
+		Docker:             nil, // no Docker daemon in unit tests; must degrade gracefully
+		Runner:             nil, // no runner configured by default; see fakeRunner in runs_handlers_test.go
+		Secrets:            nil, // no encryption key configured by default; see providers_handlers_test.go
+		Auth:               auth.NewMemoryStore(),
+		AuthEnabled:        false, // opt-in; see auth_handlers_test.go for AuthEnabled: true coverage
+		Metrics:            metrics.NewAppMetrics(metrics.NewRegistry()),
+		Kube:               nil, // no kubeconfig configured by default; see kube_handlers_test.go for a fake API
+		KubeResources:      kubediscovery.NewMemoryStore(),
+		Webhooks:           webhooks.NewSender(),
+		Version:            "dev",
+		UpdateCheck:        updatecheck.NewStore("dev"),
+		UpdateCheckEnabled: true,
 	}
 }
 
@@ -87,6 +91,42 @@ func TestHandleHealth_AlwaysOK(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (health must not depend on downstream services)", rec.Code)
+	}
+}
+
+func TestHandleVersion_ReportsCurrentVersionAndUpdateAvailability(t *testing.T) {
+	deps := newTestDeps(nil, nil)
+	deps.Version = "v1.2.3"
+	store := updatecheck.NewStore("v1.2.3")
+	store.Set(updatecheck.Info{
+		CurrentVersion:  "v1.2.3",
+		LatestVersion:   "v1.3.0",
+		UpdateAvailable: true,
+		ReleaseURL:      "https://github.com/Tolgahan0/E2E-Sentinel/releases/tag/v1.3.0",
+	})
+	deps.UpdateCheck = store
+	router := NewRouter(deps)
+
+	req := httptest.NewRequest(http.MethodGet, "/version", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid JSON body: %v", err)
+	}
+	if body["current_version"] != "v1.2.3" {
+		t.Errorf("current_version = %v, want v1.2.3", body["current_version"])
+	}
+	if body["latest_version"] != "v1.3.0" {
+		t.Errorf("latest_version = %v, want v1.3.0", body["latest_version"])
+	}
+	if body["update_available"] != true {
+		t.Errorf("update_available = %v, want true", body["update_available"])
 	}
 }
 

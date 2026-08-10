@@ -96,6 +96,15 @@ services:
       SENTINEL_ADMIN_PASSWORD: ${SENTINEL_ADMIN_PASSWORD:-}
       SENTINEL_KUBE_CONFIG_PATH: ${SENTINEL_KUBE_CONFIG_PATH:-}
       SENTINEL_KUBE_NAMESPACE: ${SENTINEL_KUBE_NAMESPACE:-}
+      # Same tag install.sh resolved and exported before pulling images
+      # above — passed through so the running process knows its own
+      # version (GET /version, read by the panel's Dashboard and
+      # scripts/onboard.sh to notice a newer release).
+      SENTINEL_VERSION: ${SENTINEL_VERSION:-latest}
+      # Set to "false" for an air-gapped deployment with no outbound
+      # internet access — GET /version then just reports the current
+      # version, with no comparison performed.
+      SENTINEL_UPDATE_CHECK_ENABLED: ${SENTINEL_UPDATE_CHECK_ENABLED:-true}
     volumes:
       # Target repositories to discover/test — place them under
       # ./workspace, then use /workspace/<name> as a project's

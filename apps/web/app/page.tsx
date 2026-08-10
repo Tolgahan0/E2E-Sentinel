@@ -17,6 +17,7 @@ import {
   type RunsResponse,
   type TestRun,
   type TestsResponse,
+  type VersionResponse,
 } from '@/lib/api';
 
 interface TopProject {
@@ -650,11 +651,13 @@ function InsightsGrid({
   loaded,
   health,
   ready,
+  version,
 }: {
   stats: PipelineStats;
   loaded: boolean;
   health: HealthResponse | null;
   ready: ReadyResponse | null;
+  version: VersionResponse | null;
 }) {
   if (!loaded) {
     return (
@@ -826,6 +829,37 @@ function InsightsGrid({
               </span>
             </span>
           )}
+          {version && (
+            <span className="sentinel-insights-row">
+              <span
+                className="sentinel-insights-dot"
+                style={{ '--dot-color': version.update_available ? 'var(--sentinel-warn)' : 'var(--sentinel-ok)' } as CSSProperties}
+              />
+              <span className="sentinel-insights-row-main">
+                <span className="sentinel-insights-row-title">Version</span>
+                <span className="sentinel-insights-row-sub">{version.current_version}</span>
+              </span>
+              <span className="sentinel-insights-row-end">
+                {version.update_available ? (
+                  <a href={version.release_url || undefined} target="_blank" rel="noreferrer" className="sentinel-insights-pill" data-tone="warn">
+                    {version.latest_version} available
+                  </a>
+                ) : !version.update_check_enabled ? (
+                  <span className="sentinel-insights-pill" data-tone="muted">
+                    check disabled
+                  </span>
+                ) : version.check_error ? (
+                  <span className="sentinel-insights-pill" data-tone="muted" title={version.check_error}>
+                    check failed
+                  </span>
+                ) : (
+                  <span className="sentinel-insights-pill" data-tone="ok">
+                    up to date
+                  </span>
+                )}
+              </span>
+            </span>
+          )}
         </div>
       </InsightsCard>
 
@@ -854,6 +888,7 @@ function InsightsGrid({
 export default function DashboardPage() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [ready, setReady] = useState<ReadyResponse | null>(null);
+  const [version, setVersion] = useState<VersionResponse | null>(null);
   const [stats, setStats] = useState<PipelineStats>(EMPTY_STATS);
   const [loaded, setLoaded] = useState(false);
 
@@ -861,14 +896,16 @@ export default function DashboardPage() {
     let cancelled = false;
 
     async function load() {
-      const [healthRes, readyRes, projectsRes] = await Promise.all([
+      const [healthRes, readyRes, versionRes, projectsRes] = await Promise.all([
         fetchJSON<HealthResponse>('/api/health'),
         fetchJSON<ReadyResponse>('/api/ready'),
+        fetchJSON<VersionResponse>('/api/version'),
         fetchJSON<ProjectsResponse>('/api/v1/projects'),
       ]);
       if (cancelled) return;
       setHealth(healthRes);
       setReady(readyRes);
+      setVersion(versionRes);
 
       const projects = projectsRes?.projects ?? [];
       const pipelineStats = await loadPipelineStats(projects);
@@ -891,6 +928,20 @@ export default function DashboardPage() {
         routes, existing tests, and observed behavior to generate high-confidence test
         recommendations and evidence-backed failure reports.
       </p>
+
+      {version?.update_available && (
+        <div className="sentinel-update-banner">
+          <span>
+            A newer version of E2E Sentinel is available: <strong>{version.latest_version}</strong>{' '}
+            (currently running {version.current_version}).
+          </span>
+          {version.release_url && (
+            <a href={version.release_url} target="_blank" rel="noreferrer">
+              View release
+            </a>
+          )}
+        </div>
+      )}
 
       <FlowMap stats={stats} loaded={loaded} />
 
@@ -916,7 +967,7 @@ export default function DashboardPage() {
       )}
 
       <div style={{ marginTop: '1rem' }}>
-        <InsightsGrid stats={stats} loaded={loaded} health={health} ready={ready} />
+        <InsightsGrid stats={stats} loaded={loaded} health={health} ready={ready} version={version} />
       </div>
     </>
   );
