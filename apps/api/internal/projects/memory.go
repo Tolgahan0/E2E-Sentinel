@@ -85,6 +85,45 @@ func (s *MemoryStore) SetDiscoveryStatus(_ context.Context, id, status string, l
 	return nil
 }
 
+func (s *MemoryStore) SetGitHubCI(_ context.Context, id, githubRepo, tokenSecretReferenceID string) (Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.byID[id]
+	if !ok {
+		return Project{}, ErrNotFound
+	}
+	p.GitHubRepo = githubRepo
+	p.GitHubTokenSecretReferenceID = tokenSecretReferenceID
+	p.UpdatedAt = time.Now()
+	s.byID[id] = p
+	return p, nil
+}
+
+func (s *MemoryStore) SetLastCICommitSHA(_ context.Context, id, sha string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.byID[id]
+	if !ok {
+		return ErrNotFound
+	}
+	p.LastCICommitSHA = sha
+	p.UpdatedAt = time.Now()
+	s.byID[id] = p
+	return nil
+}
+
+func (s *MemoryStore) ListWithGitHubCI(_ context.Context) ([]Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []Project
+	for _, p := range s.byID {
+		if p.GitHubRepo != "" {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
 func (s *MemoryStore) Delete(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

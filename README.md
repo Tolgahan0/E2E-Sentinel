@@ -402,6 +402,15 @@ its own failure/bug trail.
   read-only, sends no project data. Surfaced at `GET /version`, a
   Dashboard banner when a newer version is out, and a one-line notice
   from `scripts/onboard.sh`; never downloads or applies anything itself.
+- **GitHub CI integration**: opt-in (`SENTINEL_GITHUB_CI_ENABLED`), per-
+  project poll of GitHub's REST API for a new commit on the default
+  branch — deliberately not a webhook receiver, since `sentinel-api`
+  stays bound to `127.0.0.1` either way (see
+  [docs/GITHUB_CI.md](docs/GITHUB_CI.md)). A new commit runs every
+  approved test case for that project through the exact same
+  approval/production-safety gates as a manual run, then reports one
+  commit status back. The GitHub token is stored the same encrypted way
+  an AI provider's API key is, and is never returned by the API.
 - **WebSocket test adapter** (one of spec §25 Phase 11's eight tools —
   see [docs/TEST_ADAPTERS.md](docs/TEST_ADAPTERS.md) for why the other
   seven are documented as deferred instead of built): repository scan

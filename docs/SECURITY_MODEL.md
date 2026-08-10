@@ -233,6 +233,21 @@ as each phase introduces the surface they apply to.
   deployment. A failed check (`check_error` in `GET /version`'s
   response) is reported as-is, never silently reinterpreted as "no
   update available" — an air-gapped operator can tell the two apart.
+- **GitHub CI integration polls out; nothing calls in.** `internal/githubci`
+  is opt-in (`SENTINEL_GITHUB_CI_ENABLED`, defaults to `false`) and, per
+  project, requires an explicit `github_repo` + a stored PAT before it
+  does anything. It works by polling GitHub's REST API for a new commit
+  on the project's default branch — it does **not** receive a GitHub
+  webhook, deliberately: `sentinel-api` stays bound to `127.0.0.1` (see
+  "Least-exposure networking" above), and a public inbound endpoint
+  would be a direct exception to that. A project's PAT is stored through
+  the same `internal/secretstore` AES-256-GCM encryption AI provider API
+  keys use, and never appears in a `GET`/`PATCH /projects/{id}` response
+  — only whether one is configured. Triggered runs go through the exact
+  same approval gate as a manual `POST /tests/{id}/run` (unapproved or
+  production-unsafe tests are refused identically); the only thing
+  GitHub receives back is a commit status (state + a short description),
+  never repository content. See [docs/GITHUB_CI.md](GITHUB_CI.md).
 
 ## Not yet implemented
 

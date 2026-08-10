@@ -35,6 +35,7 @@ interface RecentRun {
   testTitle: string;
   status: RunStatus;
   startedAt: string;
+  triggerType: string;
 }
 
 interface TopBug {
@@ -189,6 +190,7 @@ async function loadPipelineStats(projects: Project[]): Promise<PipelineStats> {
       testTitle: testTitle.get(r.test_case_id) ?? r.test_case_id,
       status: r.status,
       startedAt: r.started_at,
+      triggerType: r.trigger_type,
     }));
 
   const topBugs: TopBug[] = [...bugs]
@@ -773,7 +775,10 @@ function InsightsGrid({
                 />
                 <span className="sentinel-insights-row-main">
                   <span className="sentinel-insights-row-title">{r.testTitle}</span>
-                  <span className="sentinel-insights-row-sub">{r.projectName}</span>
+                  <span className="sentinel-insights-row-sub">
+                    {r.projectName}
+                    {r.triggerType === 'ci' && ' · CI'}
+                  </span>
                 </span>
                 <span className="sentinel-insights-row-end">
                   <span className="sentinel-insights-pill" data-tone={r.status === 'passed' ? 'ok' : r.status === 'failed' || r.status === 'error' ? 'danger' : 'muted'}>

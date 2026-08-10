@@ -62,7 +62,17 @@ function ArtifactsList({ runID }: { runID: string }) {
   );
 }
 
-function RunRow({ run, testTitle, onChanged }: { run: TestRun; testTitle: string; onChanged: (updated: TestRun) => void }) {
+function RunRow({
+  run,
+  testTitle,
+  githubRepo,
+  onChanged,
+}: {
+  run: TestRun;
+  testTitle: string;
+  githubRepo?: string;
+  onChanged: (updated: TestRun) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [cancelling, setCancelling] = useState(false);
 
@@ -78,6 +88,22 @@ function RunRow({ run, testTitle, onChanged }: { run: TestRun; testTitle: string
       <tr>
         <td>{testTitle}</td>
         <td className={STATUS_CLASS[run.status]}>{run.status}</td>
+        <td>
+          {run.trigger_type === 'ci' ? 'CI' : 'manual'}
+          {run.commit_sha && githubRepo && (
+            <>
+              {' '}
+              <a
+                href={`https://github.com/${githubRepo}/commit/${run.commit_sha}`}
+                target="_blank"
+                rel="noreferrer"
+                style={{ fontFamily: 'monospace', fontSize: '0.85em' }}
+              >
+                {run.commit_sha.slice(0, 7)}
+              </a>
+            </>
+          )}
+        </td>
         <td>{run.exit_code ?? '—'}</td>
         <td>{new Date(run.started_at).toLocaleString()}</td>
         <td>
@@ -91,7 +117,7 @@ function RunRow({ run, testTitle, onChanged }: { run: TestRun; testTitle: string
       </tr>
       {expanded && (
         <tr>
-          <td colSpan={5}>
+          <td colSpan={6}>
             <ArtifactsList runID={run.id} />
           </td>
         </tr>
@@ -146,6 +172,7 @@ function RunsContent() {
 
   const approvedTests = useMemo(() => tests.filter((t) => t.approval_status === 'approved'), [tests]);
   const testTitleByID = useMemo(() => new Map(tests.map((t) => [t.id, t.title])), [tests]);
+  const selectedProject = useMemo(() => projects.find((p) => p.id === selectedID), [projects, selectedID]);
 
   async function startRun() {
     if (!selectedTestID) return;
@@ -221,6 +248,7 @@ function RunsContent() {
               <tr>
                 <th>Test</th>
                 <th>Status</th>
+                <th>Trigger</th>
                 <th>Exit code</th>
                 <th>Started</th>
                 <th>Actions</th>
@@ -228,7 +256,13 @@ function RunsContent() {
             </thead>
             <tbody>
               {runs.map((r) => (
-                <RunRow key={r.id} run={r} testTitle={testTitleByID.get(r.test_case_id) ?? r.test_case_id} onChanged={updateRun} />
+                <RunRow
+                  key={r.id}
+                  run={r}
+                  testTitle={testTitleByID.get(r.test_case_id) ?? r.test_case_id}
+                  githubRepo={selectedProject?.github_repo}
+                  onChanged={updateRun}
+                />
               ))}
             </tbody>
           </table>

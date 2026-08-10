@@ -19,21 +19,20 @@ func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
 	return &PostgresStore{pool: pool}
 }
 
+const projectColumns = `id, name, slug, repository_path, repository_type, default_branch, discovery_status, current_mode, last_discovered_at, created_at, updated_at, github_repo, github_token_secret_reference_id, last_ci_commit_sha`
+
 func (s *PostgresStore) Create(ctx context.Context, p Project) (Project, error) {
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO projects (name, slug, repository_path, repository_type, default_branch, discovery_status, current_mode)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id, name, slug, repository_path, repository_type, default_branch, discovery_status, current_mode, last_discovered_at, created_at, updated_at
-	`, p.Name, p.Slug, p.RepositoryPath, orDefault(p.RepositoryType, "local"), orDefault(p.DefaultBranch, "main"), orDefault(p.DiscoveryStatus, DiscoveryStatusNeverRun), orDefault(p.CurrentMode, ModeObserve))
+		RETURNING `+projectColumns,
+		p.Name, p.Slug, p.RepositoryPath, orDefault(p.RepositoryType, "local"), orDefault(p.DefaultBranch, "main"), orDefault(p.DiscoveryStatus, DiscoveryStatusNeverRun), orDefault(p.CurrentMode, ModeObserve))
 
 	return scanProject(row)
 }
 
 func (s *PostgresStore) Get(ctx context.Context, id string) (Project, error) {
-	row := s.pool.QueryRow(ctx, `
-		SELECT id, name, slug, repository_path, repository_type, default_branch, discovery_status, current_mode, last_discovered_at, created_at, updated_at
-		FROM projects WHERE id = $1
-	`, id)
+	row := s.pool.QueryRow(ctx, `SELECT `+projectColumns+` FROM projects WHERE id = $1`, id)
 
 	p, err := scanProject(row)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -43,12 +42,27 @@ func (s *PostgresStore) Get(ctx context.Context, id string) (Project, error) {
 }
 
 func (s *PostgresStore) List(ctx context.Context) ([]Project, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT id, name, slug, repository_path, repository_type, default_branch, discovery_status, current_mode, last_discovered_at, created_at, updated_at
-		FROM projects ORDER BY created_at DESC
-	`)
+	rows, err := s.pool.Query(ctx, `SELECT `+projectColumns+` FROM projects ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("projects: listing: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Project
+	for rows.Next() {
+		p, err := scanProject(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+func (s *PostgresStore) ListWithGitHubCI(ctx context.Context) ([]Project, error) {
+	rows, err := s.pool.Query(ctx, `SELECT `+projectColumns+` FROM projects WHERE github_repo != '' ORDER BY created_at`)
+	if err != nil {
+		return nil, fmt.Errorf("projects: listing github-ci projects: %w", err)
 	}
 	defer rows.Close()
 
@@ -66,14 +80,43 @@ func (s *PostgresStore) List(ctx context.Context) ([]Project, error) {
 func (s *PostgresStore) UpdateName(ctx context.Context, id, name string) (Project, error) {
 	row := s.pool.QueryRow(ctx, `
 		UPDATE projects SET name = $2, updated_at = now() WHERE id = $1
-		RETURNING id, name, slug, repository_path, repository_type, default_branch, discovery_status, current_mode, last_discovered_at, created_at, updated_at
-	`, id, name)
+		RETURNING `+projectColumns, id, name)
 
 	p, err := scanProject(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Project{}, ErrNotFound
 	}
 	return p, err
+}
+
+func (s *PostgresStore) SetGitHubCI(ctx context.Context, id, githubRepo, tokenSecretReferenceID string) (Project, error) {
+	row := s.pool.QueryRow(ctx, `
+		UPDATE projects SET github_repo = $2, github_token_secret_reference_id = $3, updated_at = now() WHERE id = $1
+		RETURNING `+projectColumns, id, githubRepo, nullIfEmpty(tokenSecretReferenceID))
+
+	p, err := scanProject(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Project{}, ErrNotFound
+	}
+	return p, err
+}
+
+func (s *PostgresStore) SetLastCICommitSHA(ctx context.Context, id, sha string) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE projects SET last_ci_commit_sha = $2, updated_at = now() WHERE id = $1`, id, sha)
+	if err != nil {
+		return fmt.Errorf("projects: updating last CI commit sha: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func nullIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 func (s *PostgresStore) SetDiscoveryStatus(ctx context.Context, id, status string, lastDiscoveredAt *time.Time) error {
@@ -123,9 +166,13 @@ type rowScanner interface {
 
 func scanProject(row rowScanner) (Project, error) {
 	var p Project
-	err := row.Scan(&p.ID, &p.Name, &p.Slug, &p.RepositoryPath, &p.RepositoryType, &p.DefaultBranch, &p.DiscoveryStatus, &p.CurrentMode, &p.LastDiscoveredAt, &p.CreatedAt, &p.UpdatedAt)
+	var tokenRef *string
+	err := row.Scan(&p.ID, &p.Name, &p.Slug, &p.RepositoryPath, &p.RepositoryType, &p.DefaultBranch, &p.DiscoveryStatus, &p.CurrentMode, &p.LastDiscoveredAt, &p.CreatedAt, &p.UpdatedAt, &p.GitHubRepo, &tokenRef, &p.LastCICommitSHA)
 	if err != nil {
 		return Project{}, fmt.Errorf("projects: scanning row: %w", err)
+	}
+	if tokenRef != nil {
+		p.GitHubTokenSecretReferenceID = *tokenRef
 	}
 	return p, nil
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -17,15 +18,17 @@ import (
 )
 
 type testRunResponse struct {
-	ID         string  `json:"id"`
-	ProjectID  string  `json:"project_id"`
-	TestCaseID string  `json:"test_case_id"`
-	Status     string  `json:"status"`
-	RunnerType string  `json:"runner_type"`
-	ExitCode   *int    `json:"exit_code"`
-	Summary    string  `json:"summary"`
-	StartedAt  string  `json:"started_at"`
-	FinishedAt *string `json:"finished_at"`
+	ID          string  `json:"id"`
+	ProjectID   string  `json:"project_id"`
+	TestCaseID  string  `json:"test_case_id"`
+	Status      string  `json:"status"`
+	RunnerType  string  `json:"runner_type"`
+	TriggerType string  `json:"trigger_type"`
+	CommitSHA   string  `json:"commit_sha"`
+	ExitCode    *int    `json:"exit_code"`
+	Summary     string  `json:"summary"`
+	StartedAt   string  `json:"started_at"`
+	FinishedAt  *string `json:"finished_at"`
 }
 
 func toTestRunResponse(r runs.TestRun) testRunResponse {
@@ -36,7 +39,8 @@ func toTestRunResponse(r runs.TestRun) testRunResponse {
 	}
 	return testRunResponse{
 		ID: r.ID, ProjectID: r.ProjectID, TestCaseID: r.TestCaseID, Status: r.Status,
-		RunnerType: r.RunnerType, ExitCode: r.ExitCode, Summary: r.Summary,
+		RunnerType: r.RunnerType, TriggerType: r.TriggerType, CommitSHA: r.CommitSHA,
+		ExitCode: r.ExitCode, Summary: r.Summary,
 		StartedAt: r.StartedAt.Format(timeFormat), FinishedAt: finished,
 	}
 }
@@ -85,88 +89,115 @@ func runnerByName(deps Dependencies, runnerType string) runs.Runner {
 	return nil
 }
 
+// Errors TriggerRun can return, checked with errors.Is by both
+// handleRunTest and internal/githubci — the latter only logs them and
+// moves on to the next test case, so these need to be inspectable
+// without parsing an HTTP-shaped message.
+var (
+	ErrRunnerNotConfigured      = errors.New("httpserver: runner not configured")
+	ErrTestNotApproved          = errors.New("httpserver: test case not approved")
+	ErrEnvironmentBaseURLNotSet = errors.New("httpserver: environment base_url not set")
+	ErrSpecGenerationFailed     = errors.New("httpserver: spec generation failed")
+)
+
 func handleRunTest(deps Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		testID := chi.URLParam(r, "testID")
-
-		tc, err := deps.Planning.Get(r.Context(), testID)
-		if errors.Is(err, planning.ErrNotFound) {
+		run, err := TriggerRun(r.Context(), deps, chi.URLParam(r, "testID"), runs.TriggerTypeManual, "user", "")
+		switch {
+		case errors.Is(err, planning.ErrNotFound):
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "test_not_found"})
-			return
-		}
-		if err != nil {
-			deps.Logger.Error().Err(err).Msg("getting test case for run failed")
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
-			return
-		}
-
-		runner := runnerFor(deps, tc.Framework)
-		if runner == nil {
+		case errors.Is(err, ErrRunnerNotConfigured):
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "runner_not_configured"})
-			return
-		}
-
-		if tc.ApprovalStatus != planning.ApprovalApproved {
+		case errors.Is(err, ErrTestNotApproved):
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "test_not_approved", "detail": "only an approved test case can be run"})
-			return
-		}
-
-		// A WebSocket test's RoutePath is already a full "ws://"/"wss://"
-		// URL (see routes.Route's doc comment) — it needs no environment
-		// base_url to join against, unlike every Playwright-based test.
-		isWebSocket := tc.Framework == "websocket"
-		var baseURL string
-		if !isWebSocket {
-			envs, err := deps.Environments.ListByProject(r.Context(), tc.ProjectID)
-			if err != nil {
-				deps.Logger.Error().Err(err).Msg("listing environments for run failed")
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
-				return
-			}
-			for _, env := range envs {
-				if env.BaseURL != "" {
-					baseURL = env.BaseURL
-					break
-				}
-			}
-			if baseURL == "" {
-				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
-					"error": "environment_base_url_not_set", "detail": "set an environment's base_url before running a test",
-				})
-				return
-			}
-		}
-
-		run, err := deps.Runs.Create(r.Context(), runs.TestRun{
-			ProjectID: tc.ProjectID, TestCaseID: tc.ID, Status: runs.StatusQueued,
-			RunnerType: runner.Name(), TriggerType: "manual", TriggeredBy: "user",
-		})
-		if err != nil {
-			deps.Logger.Error().Err(err).Msg("creating test run failed")
+		case errors.Is(err, ErrEnvironmentBaseURLNotSet):
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
+				"error": "environment_base_url_not_set", "detail": "set an environment's base_url before running a test",
+			})
+		case errors.Is(err, ErrSpecGenerationFailed):
+			detail := strings.TrimPrefix(err.Error(), ErrSpecGenerationFailed.Error()+": ")
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "spec_generation_failed", "detail": detail})
+		case err != nil:
+			deps.Logger.Error().Err(err).Msg("running test failed")
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
-			return
+		default:
+			writeJSON(w, http.StatusAccepted, toTestRunResponse(run))
 		}
-
-		filename, content, err := testgen.GenerateSpec(testgen.TestCaseInput{
-			ID: tc.ID, Title: tc.Title, RoutePath: tc.RoutePath, RouteMethod: tc.RouteMethod, Framework: tc.Framework,
-		}, baseURL)
-		if err != nil {
-			_, _ = deps.Runs.UpdateStatus(r.Context(), run.ID, runs.StatusError, nil, err.Error(), true)
-			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "spec_generation_failed", "detail": err.Error()})
-			return
-		}
-
-		if err := deps.Audit.Record(r.Context(), audit.Event{
-			ActionType: "test_run.started", ResourceType: "test_run", ResourceID: run.ID,
-			Actor: "user", Metadata: map[string]any{"test_case_id": tc.ID},
-		}); err != nil {
-			deps.Logger.Error().Err(err).Msg("recording test_run.started audit event failed")
-		}
-
-		go executeRunAsync(deps, runner, run.ID, runs.RunInput{RunID: run.ID, SpecFilename: filename, SpecContent: content})
-
-		writeJSON(w, http.StatusAccepted, toTestRunResponse(run))
 	}
+}
+
+// TriggerRun starts an approved test case's run — the one path both
+// handleRunTest (a human clicking "Run") and internal/githubci (a
+// polled commit) go through, so a CI-triggered run is subject to
+// exactly the same rules as a manual one (approved-only, environment
+// base_url required, production-classified environments still block
+// mutating tests upstream at approval time) and is indistinguishable
+// once created except for triggerType/triggeredBy/commitSHA. Execution
+// itself happens in a background goroutine (executeRunAsync) using a
+// fresh, uncancelled context, since the caller's own context (an HTTP
+// request, or one poll tick) ends long before a run finishes.
+func TriggerRun(ctx context.Context, deps Dependencies, testCaseID, triggerType, triggeredBy, commitSHA string) (runs.TestRun, error) {
+	tc, err := deps.Planning.Get(ctx, testCaseID)
+	if err != nil {
+		return runs.TestRun{}, err
+	}
+
+	runner := runnerFor(deps, tc.Framework)
+	if runner == nil {
+		return runs.TestRun{}, ErrRunnerNotConfigured
+	}
+
+	if tc.ApprovalStatus != planning.ApprovalApproved {
+		return runs.TestRun{}, ErrTestNotApproved
+	}
+
+	// A WebSocket test's RoutePath is already a full "ws://"/"wss://"
+	// URL (see routes.Route's doc comment) — it needs no environment
+	// base_url to join against, unlike every Playwright-based test.
+	isWebSocket := tc.Framework == "websocket"
+	var baseURL string
+	if !isWebSocket {
+		envs, err := deps.Environments.ListByProject(ctx, tc.ProjectID)
+		if err != nil {
+			return runs.TestRun{}, fmt.Errorf("listing environments: %w", err)
+		}
+		for _, env := range envs {
+			if env.BaseURL != "" {
+				baseURL = env.BaseURL
+				break
+			}
+		}
+		if baseURL == "" {
+			return runs.TestRun{}, ErrEnvironmentBaseURLNotSet
+		}
+	}
+
+	run, err := deps.Runs.Create(ctx, runs.TestRun{
+		ProjectID: tc.ProjectID, TestCaseID: tc.ID, Status: runs.StatusQueued,
+		RunnerType: runner.Name(), TriggerType: triggerType, TriggeredBy: triggeredBy, CommitSHA: commitSHA,
+	})
+	if err != nil {
+		return runs.TestRun{}, fmt.Errorf("creating test run: %w", err)
+	}
+
+	filename, content, err := testgen.GenerateSpec(testgen.TestCaseInput{
+		ID: tc.ID, Title: tc.Title, RoutePath: tc.RoutePath, RouteMethod: tc.RouteMethod, Framework: tc.Framework,
+	}, baseURL)
+	if err != nil {
+		_, _ = deps.Runs.UpdateStatus(ctx, run.ID, runs.StatusError, nil, err.Error(), true)
+		return runs.TestRun{}, fmt.Errorf("%w: %s", ErrSpecGenerationFailed, err.Error())
+	}
+
+	if err := deps.Audit.Record(ctx, audit.Event{
+		ActionType: "test_run.started", ResourceType: "test_run", ResourceID: run.ID,
+		Actor: triggeredBy, Metadata: map[string]any{"test_case_id": tc.ID, "trigger_type": triggerType},
+	}); err != nil {
+		deps.Logger.Error().Err(err).Msg("recording test_run.started audit event failed")
+	}
+
+	go executeRunAsync(deps, runner, run.ID, runs.RunInput{RunID: run.ID, SpecFilename: filename, SpecContent: content})
+
+	return run, nil
 }
 
 // executeRunAsync runs entirely on a background context: the triggering

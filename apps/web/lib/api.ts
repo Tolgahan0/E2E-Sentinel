@@ -49,6 +49,10 @@ export interface Project {
   last_discovered_at: string | null;
   created_at: string;
   updated_at: string;
+  // GitHub CI (internal/githubci) — github_ci_configured means a token
+  // is stored; the token itself is never returned by the API.
+  github_repo: string;
+  github_ci_configured: boolean;
 }
 
 export interface ProjectsResponse {
@@ -169,6 +173,10 @@ export interface TestRun {
   test_case_id: string;
   status: RunStatus;
   runner_type: string;
+  // trigger_type is "manual" (someone clicked Run) or "ci" (internal/
+  // githubci polled a new commit) — see commit_sha, only set for "ci".
+  trigger_type: string;
+  commit_sha: string;
   exit_code: number | null;
   summary: string;
   started_at: string;

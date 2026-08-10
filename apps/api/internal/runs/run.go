@@ -20,6 +20,12 @@ const (
 	StatusError     = "error" // infrastructure failure, distinct from a failing assertion
 )
 
+// Trigger types.
+const (
+	TriggerTypeManual = "manual"
+	TriggerTypeCI     = "ci"
+)
+
 // TestRun is one execution of a single test case (spec §6.7, narrowed to
 // the fields Phase 5 populates).
 type TestRun struct {
@@ -30,10 +36,14 @@ type TestRun struct {
 	RunnerType  string
 	TriggerType string
 	TriggeredBy string
-	ExitCode    *int
-	Summary     string
-	StartedAt   time.Time
-	FinishedAt  *time.Time
+	// CommitSHA is set only for TriggerTypeCI runs (internal/githubci) —
+	// the commit on the project's default branch this run was triggered
+	// for. Empty for a manual run.
+	CommitSHA  string
+	ExitCode   *int
+	Summary    string
+	StartedAt  time.Time
+	FinishedAt *time.Time
 }
 
 // ErrNotFound is returned when a run ID does not exist.

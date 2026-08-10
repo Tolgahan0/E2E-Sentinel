@@ -23,6 +23,7 @@ import (
 	"e2e-sentinel/apps/api/internal/environments"
 	"e2e-sentinel/apps/api/internal/failures"
 	"e2e-sentinel/apps/api/internal/fixproposals"
+	"e2e-sentinel/apps/api/internal/githubci"
 	"e2e-sentinel/apps/api/internal/graph"
 	"e2e-sentinel/apps/api/internal/httpserver"
 	"e2e-sentinel/apps/api/internal/kubeclient"
@@ -254,7 +255,7 @@ func run(migrateOnly bool) error {
 		logger.Info().Msg("update checking disabled (SENTINEL_UPDATE_CHECK_ENABLED=false) — GET /version will report the current version only")
 	}
 
-	router := httpserver.NewRouter(httpserver.Dependencies{
+	deps := httpserver.Dependencies{
 		Postgres:           httpserver.PostgresPinger{Pool: pgPool},
 		Redis:              httpserver.RedisPinger{Client: redisClient},
 		Audit:              recorder,
@@ -289,7 +290,26 @@ func run(migrateOnly bool) error {
 		UpdateCheck:        updateStore,
 		UpdateCheckEnabled: cfg.UpdateCheckEnabled,
 		Logger:             logger,
-	})
+	}
+
+	// GitHub CI (spec-external addition — poll-triggered, see
+	// internal/githubci's package doc for why this polls rather than
+	// receives a webhook) is opt-in and requires secret encryption to
+	// be configured too, since a project's GitHub token is stored
+	// through the same secretstore AI providers use.
+	if cfg.GitHubCIEnabled && secretStore != nil {
+		trigger := func(ctx context.Context, testCaseID, triggerType, triggeredBy, commitSHA string) (runs.TestRun, error) {
+			return httpserver.TriggerRun(ctx, deps, testCaseID, triggerType, triggeredBy, commitSHA)
+		}
+		go githubci.RunLoop(ctx, deps.Projects, deps.Runs, deps.Planning, deps.Secrets, githubci.NewClient(nil), trigger, cfg.GitHubCIPollInterval, logger)
+		logger.Info().Dur("poll_interval", cfg.GitHubCIPollInterval).Msg("github CI polling enabled")
+	} else if cfg.GitHubCIEnabled {
+		logger.Info().Msg("github CI enabled (SENTINEL_GITHUB_CI_ENABLED=true) but SENTINEL_SECRET_ENCRYPTION_KEY is unset — a project's GitHub token can't be stored, so polling is disabled")
+	} else {
+		logger.Info().Msg("github CI polling not enabled (SENTINEL_GITHUB_CI_ENABLED unset) — projects can still be configured, but nothing will poll them")
+	}
+
+	router := httpserver.NewRouter(deps)
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,

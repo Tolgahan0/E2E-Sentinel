@@ -23,6 +23,86 @@ function DiscoveryStatusBadge({ status }: { status: Project['discovery_status'] 
   return <span className={className}>{status.replace('_', ' ')}</span>;
 }
 
+function GitHubCIEditor({ project, onChanged }: { project: Project; onChanged: (updated: Project) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [repo, setRepo] = useState(project.github_repo);
+  const [token, setToken] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    const result = await mutateJSON<Project>('PATCH', `/api/v1/projects/${project.id}/github-ci`, {
+      github_repo: repo,
+      github_token: token,
+    });
+    setSaving(false);
+    if (result.ok && result.data) {
+      onChanged(result.data);
+      setToken('');
+      setEditing(false);
+    } else {
+      setError(result.error ?? 'request_failed');
+    }
+  }
+
+  if (!editing) {
+    return (
+      <button
+        onClick={() => setEditing(true)}
+        style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer', color: 'inherit' }}
+      >
+        {project.github_repo ? (
+          <>
+            {project.github_repo}{' '}
+            <span className={project.github_ci_configured ? 'sentinel-status-ok' : 'sentinel-status-unknown'}>
+              ({project.github_ci_configured ? 'token set' : 'no token'})
+            </span>
+          </>
+        ) : (
+          <span className="sentinel-status-unknown">Not configured</span>
+        )}
+      </button>
+    );
+  }
+
+  return (
+    <span style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', minWidth: '14rem' }}>
+      <input
+        value={repo}
+        onChange={(e) => setRepo(e.target.value)}
+        placeholder="owner/repo"
+        aria-label={`GitHub repo for ${project.name}`}
+      />
+      <input
+        type="password"
+        value={token}
+        onChange={(e) => setToken(e.target.value)}
+        placeholder={project.github_ci_configured ? 'leave blank to keep current token' : 'PAT with repo:status scope'}
+        aria-label={`GitHub token for ${project.name}`}
+      />
+      <span style={{ display: 'flex', gap: '0.4rem' }}>
+        <button onClick={save} disabled={saving}>
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button
+          onClick={() => {
+            setEditing(false);
+            setRepo(project.github_repo);
+            setToken('');
+            setError(null);
+          }}
+          disabled={saving}
+        >
+          Cancel
+        </button>
+      </span>
+      {error && <span className="sentinel-status-bad">{error}</span>}
+    </span>
+  );
+}
+
 function ClassificationSelect({
   env,
   onChanged,
@@ -169,6 +249,7 @@ export default function ProjectsPage() {
                 <th>Name</th>
                 <th>Repository path</th>
                 <th>Environment</th>
+                <th>GitHub CI</th>
                 <th>Discovery</th>
                 <th>Actions</th>
               </tr>
@@ -191,6 +272,12 @@ export default function ProjectsPage() {
                     ) : (
                       '—'
                     )}
+                  </td>
+                  <td>
+                    <GitHubCIEditor
+                      project={p}
+                      onChanged={(updated) => setProjects((prev) => prev.map((proj) => (proj.id === updated.id ? updated : proj)))}
+                    />
                   </td>
                   <td>
                     <DiscoveryStatusBadge status={p.discovery_status} />

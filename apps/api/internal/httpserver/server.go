@@ -198,6 +198,7 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Route("/{projectID}", func(r chi.Router) {
 					r.Get("/", handleGetProject(deps))
 					r.Patch("/", handleUpdateProject(deps))
+					r.With(requirePermission(deps, auth.PermConfigureEnvironments)).Patch("/github-ci", handleUpdateGitHubCI(deps))
 					r.Delete("/", handleDeleteProject(deps))
 					r.Post("/discover", handleDiscoverProject(deps))
 					r.Get("/discovery", handleGetDiscovery(deps))

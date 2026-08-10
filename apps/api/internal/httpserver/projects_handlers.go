@@ -26,6 +26,12 @@ type projectResponse struct {
 	LastDiscoveredAt *string `json:"last_discovered_at"`
 	CreatedAt        string  `json:"created_at"`
 	UpdatedAt        string  `json:"updated_at"`
+	// GitHubRepo/GitHubCIConfigured describe internal/githubci's
+	// per-project config — the token itself (GitHubTokenSecretReferenceID)
+	// is never returned, same has_api_key-style boolean pattern as
+	// providers.Provider.
+	GitHubRepo         string `json:"github_repo"`
+	GitHubCIConfigured bool   `json:"github_ci_configured"`
 }
 
 func toProjectResponse(p projects.Project) projectResponse {
@@ -41,6 +47,7 @@ func toProjectResponse(p projects.Project) projectResponse {
 		LastDiscoveredAt: lastDiscovered,
 		CreatedAt:        p.CreatedAt.Format(timeFormat),
 		UpdatedAt:        p.UpdatedAt.Format(timeFormat),
+		GitHubRepo:       p.GitHubRepo, GitHubCIConfigured: p.GitHubTokenSecretReferenceID != "",
 	}
 }
 
@@ -220,6 +227,84 @@ func handleUpdateProject(deps Dependencies) http.HandlerFunc {
 			deps.Logger.Error().Err(err).Msg("updating project failed")
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return
+		}
+
+		writeJSON(w, http.StatusOK, toProjectResponse(project))
+	}
+}
+
+// handleUpdateGitHubCI configures (or clears) internal/githubci for a
+// project: which "owner/repo" to poll, and the PAT to poll/report with.
+// The token is write-only — GET/PATCH responses only ever say whether
+// one is configured (GitHubCIConfigured), never the value itself, same
+// as handleCreateProvider/handlePatchProvider's api_key handling. An
+// empty github_token in the request body leaves whatever token is
+// already stored untouched; send github_repo: "" to disable the
+// integration for this project without discarding a stored token (it
+// simply won't be used while github_repo is empty).
+func handleUpdateGitHubCI(deps Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		projectID := chi.URLParam(r, "projectID")
+
+		var body struct {
+			GitHubRepo  *string `json:"github_repo"`
+			GitHubToken string  `json:"github_token"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+			return
+		}
+
+		existing, err := deps.Projects.Get(r.Context(), projectID)
+		if errors.Is(err, projects.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "project_not_found"})
+			return
+		}
+		if err != nil {
+			deps.Logger.Error().Err(err).Msg("getting project for github-ci update failed")
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+
+		githubRepo := existing.GitHubRepo
+		if body.GitHubRepo != nil {
+			githubRepo = *body.GitHubRepo
+		}
+
+		secretReferenceID := existing.GitHubTokenSecretReferenceID
+		if body.GitHubToken != "" {
+			if deps.Secrets == nil {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+					"error":  "secret_encryption_not_configured",
+					"detail": "SENTINEL_SECRET_ENCRYPTION_KEY must be set before a GitHub token can be stored",
+				})
+				return
+			}
+			id, err := deps.Secrets.Create(r.Context(), body.GitHubToken)
+			if err != nil {
+				deps.Logger.Error().Err(err).Msg("encrypting github token failed")
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+				return
+			}
+			secretReferenceID = id
+		}
+
+		project, err := deps.Projects.SetGitHubCI(r.Context(), projectID, githubRepo, secretReferenceID)
+		if errors.Is(err, projects.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "project_not_found"})
+			return
+		}
+		if err != nil {
+			deps.Logger.Error().Err(err).Msg("updating github-ci config failed")
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+
+		if err := deps.Audit.Record(r.Context(), audit.Event{
+			ActionType: "project.github_ci_updated", ResourceType: "project", ResourceID: project.ID,
+			Actor: "user", Metadata: map[string]any{"github_repo": githubRepo, "github_ci_configured": secretReferenceID != ""},
+		}); err != nil {
+			deps.Logger.Error().Err(err).Msg("recording project.github_ci_updated audit event failed")
 		}
 
 		writeJSON(w, http.StatusOK, toProjectResponse(project))

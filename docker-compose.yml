@@ -118,6 +118,12 @@ services:
       # Set to "false" to disable the periodic GitHub Releases check
       # entirely (e.g. no outbound internet access in this environment).
       SENTINEL_UPDATE_CHECK_ENABLED: ${SENTINEL_UPDATE_CHECK_ENABLED:-true}
+      # GitHub CI integration: optional, defaults to disabled. Polls
+      # (never receives a webhook) each configured project's default
+      # branch for a new commit and reports a status back — see
+      # docs/GITHUB_CI.md.
+      SENTINEL_GITHUB_CI_ENABLED: ${SENTINEL_GITHUB_CI_ENABLED:-false}
+      SENTINEL_GITHUB_CI_POLL_SECONDS: ${SENTINEL_GITHUB_CI_POLL_SECONDS:-90}
     volumes:
       - ./migrations:/app/migrations:ro
       # Target repositories to discover/test must be reachable inside this

@@ -158,6 +158,18 @@ type Config struct {
 	// project data, no telemetry); set to false for an air-gapped
 	// deployment with no outbound internet access.
 	UpdateCheckEnabled bool
+
+	// GitHubCIEnabled turns on internal/githubci: sentinel-api polls
+	// (never receives a webhook — see docs/GITHUB_CI.md for why)
+	// GitHub's API for new commits on each github-ci-configured
+	// project's default branch, runs its approved test cases, and
+	// reports a commit status back. Defaults to false — every project
+	// behaves exactly as before unless it's explicitly given a
+	// GitHubRepo (spec-style "safe default, explicit capability").
+	GitHubCIEnabled bool
+	// GitHubCIPollInterval is how often the loop above checks for new
+	// commits. Only meaningful when GitHubCIEnabled is true.
+	GitHubCIPollInterval time.Duration
 }
 
 // Load reads configuration from environment variables and validates it.
@@ -194,6 +206,7 @@ func Load(getenv func(string) string) (Config, error) {
 		KubeNamespace:               strings.TrimSpace(getenv("SENTINEL_KUBE_NAMESPACE")),
 		Version:                     firstNonEmpty(strings.TrimSpace(getenv("SENTINEL_VERSION")), "dev"),
 		UpdateCheckEnabled:          true,
+		GitHubCIPollInterval:        90 * time.Second,
 	}
 
 	if raw := getenv("SENTINEL_AUTH_ENABLED"); raw != "" {
@@ -210,6 +223,22 @@ func Load(getenv func(string) string) (Config, error) {
 			return Config{}, fmt.Errorf("config: invalid SENTINEL_UPDATE_CHECK_ENABLED: %w", err)
 		}
 		cfg.UpdateCheckEnabled = enabled
+	}
+
+	if raw := getenv("SENTINEL_GITHUB_CI_ENABLED"); raw != "" {
+		enabled, err := strconv.ParseBool(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("config: invalid SENTINEL_GITHUB_CI_ENABLED: %w", err)
+		}
+		cfg.GitHubCIEnabled = enabled
+	}
+
+	if raw := getenv("SENTINEL_GITHUB_CI_POLL_SECONDS"); raw != "" {
+		seconds, err := strconv.Atoi(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("config: invalid SENTINEL_GITHUB_CI_POLL_SECONDS: %w", err)
+		}
+		cfg.GitHubCIPollInterval = time.Duration(seconds) * time.Second
 	}
 
 	if raw := getenv("SENTINEL_SHUTDOWN_TIMEOUT_SECONDS"); raw != "" {

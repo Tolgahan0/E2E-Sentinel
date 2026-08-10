@@ -46,6 +46,7 @@ apps/api (Go, chi router)
   +-- internal/kubeclient    Hand-rolled read-only Kubernetes API client (spec §7.5, opt-in)
   +-- internal/kubediscovery Kubernetes resource discovery + pod/workload correlation (spec §7.5)
   +-- internal/updatecheck   Periodic GitHub Releases version check (opt-out, read-only)
+  +-- internal/githubci      Poll-triggered GitHub CI integration (opt-in, outbound-only)
   +-- internal/httpserver    HTTP handlers
   |
   +-- PostgreSQL
@@ -54,6 +55,7 @@ apps/api (Go, chi router)
   +-- disposable Playwright runner containers (Phase 5)
   +-- AI provider APIs (Phase 6; optional, never required)
   +-- GitHub Releases API (read-only, opt-out; internal/updatecheck)
+  +-- GitHub REST API (commit lookup + commit status; opt-in; internal/githubci)
 ```
 
 Future phases add sibling packages under `internal/` — `scheduler/` —
