@@ -479,7 +479,7 @@ function FlowMap({ stats, loaded }: { stats: PipelineStats; loaded: boolean }) {
             })}
             {[0, 1, 2].map((i) => {
               const out = circleFanPoint(HUB_X, HUB_Y, HUB_R - 4, 0, 22, i, 3);
-              const into = circleFanPoint(CLUSTER_X, CLUSTER_Y, CLUSTER_R - 4, 180, 18, i, 3);
+              const into = circleFanPoint(CLUSTER_X, CLUSTER_Y, CLUSTER_R + 2, 180, 18, i, 3);
               const d = flowCurve(out.x, out.y, into.x, into.y);
               return (
                 <g key={`track-hub-cluster-${i}`} style={{ '--node-color': 'var(--sentinel-accent)' } as CSSProperties}>
@@ -495,7 +495,7 @@ function FlowMap({ stats, loaded }: { stats: PipelineStats; loaded: boolean }) {
               );
             })}
             {issueNodes.map((n, i) => {
-              const out = circleFanPoint(CLUSTER_X, CLUSTER_Y, CLUSTER_R - 4, 0, 30, i, issueNodes.length);
+              const out = circleFanPoint(CLUSTER_X, CLUSTER_Y, CLUSTER_R + 2, 0, 30, i, issueNodes.length);
               const d = flowCurve(out.x, out.y, ISSUE_ANCHOR_X, ISSUE_Y[i]!);
               return (
                 <g key={`track-issue-${n.key}`} style={{ '--node-color': n.color } as CSSProperties}>
