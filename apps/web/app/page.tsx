@@ -538,7 +538,12 @@ function FlowMap({ stats, loaded }: { stats: PipelineStats; loaded: boolean }) {
               );
             })}
             {issueNodes.map((n, i) => {
-              const out = circleFanPointWithControl(CLUSTER_X, CLUSTER_Y, CLUSTER_R + 6, 0, 30, i, issueNodes.length, 70);
+              // A much smaller controlDist than the hub-cluster track below:
+              // the gap between the ring and ISSUE_ANCHOR_X is only ~23-37px
+              // here, so the hub-cluster track's 70 would push the control
+              // point PAST the card's x position for the fanned (+-30deg)
+              // items, looping the curve back on itself.
+              const out = circleFanPointWithControl(CLUSTER_X, CLUSTER_Y, CLUSTER_R + 6, 0, 30, i, issueNodes.length, 20);
               const d = flowCurveLeavingCircle(out, ISSUE_ANCHOR_X, ISSUE_Y[i]!);
               return (
                 <g key={`track-issue-${n.key}`} style={{ '--node-color': n.color } as CSSProperties}>
