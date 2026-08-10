@@ -1,5 +1,7 @@
 # E2E Sentinel
 
+[![Tests](https://github.com/Tolgahan0/E2E-Sentinel/actions/workflows/tests.yml/badge.svg)](https://github.com/Tolgahan0/E2E-Sentinel/actions/workflows/tests.yml)
+[![Dependency scan](https://github.com/Tolgahan0/E2E-Sentinel/actions/workflows/dependency-scan.yml/badge.svg)](https://github.com/Tolgahan0/E2E-Sentinel/actions/workflows/dependency-scan.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 ```bash
@@ -476,7 +478,13 @@ domain-flow sections walk through the exact code path.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Every push and pull request
+against `main` runs the full test suite automatically
+([.github/workflows/tests.yml](.github/workflows/tests.yml) — `go
+build`/`go vet`/`gofmt`/`go test` for `apps/api`, `tsc`/`eslint`/`next
+build` for `apps/web`) plus the dependency scan
+([.github/workflows/dependency-scan.yml](.github/workflows/dependency-scan.yml));
+the same checks run locally via `make test lint build`.
 
 ## License
 

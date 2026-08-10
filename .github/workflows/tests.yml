@@ -1,0 +1,55 @@
+name: Tests
+
+# Runs this project's own build/lint/test suite on every push and pull
+# request against main — the CI counterpart to internal/githubci (which
+# runs a *target* project's own test cases; this runs E2E Sentinel's).
+# No Postgres/Redis service is needed: per AGENTS.md's test
+# conventions, every package's unit tests use an in-memory fake for its
+# external dependency (internal/*/memory.go, httptest servers), never a
+# live database or a mock framework.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/api/go.mod
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "$unformatted"
+            echo "::error::gofmt found unformatted files — run 'gofmt -w .' in apps/api"
+            exit 1
+          fi
+      - run: go vet ./...
+      - run: go build ./...
+      - run: go test ./...
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx eslint .
+      - run: npx next build

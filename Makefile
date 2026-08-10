@@ -12,7 +12,7 @@ test:
 	cd apps/web && npm run typecheck
 
 lint:
-	cd apps/api && go vet ./...
+	cd apps/api && go vet ./... && test -z "$$(gofmt -l .)" || { gofmt -l .; echo "run 'gofmt -w .' in apps/api"; exit 1; }
 	cd apps/web && npm run lint
 
 build:
