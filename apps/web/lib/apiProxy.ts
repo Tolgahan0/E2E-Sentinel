@@ -32,7 +32,12 @@ async function proxy(method: string, upstreamPath: string, search: string, body?
       headers,
       body,
     });
-    const responseBody = await res.text();
+    // arrayBuffer (not text()) — a UTF-8 text roundtrip is lossless for
+    // JSON/text bodies but corrupts anything binary (screenshots,
+    // videos, traces, visual diff images all served through
+    // GET /artifacts/{id}/content), replacing invalid byte sequences
+    // and producing an unreadable image on the other end.
+    const responseBody = await res.arrayBuffer();
     return new NextResponse(responseBody, {
       status: res.status,
       headers: { 'Content-Type': res.headers.get('content-type') ?? 'application/json' },

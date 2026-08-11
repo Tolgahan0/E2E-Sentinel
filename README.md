@@ -381,6 +381,10 @@ its own failure/bug trail.
   **Accept** (making it the new baseline) or **Ignore**. A test case's
   first-ever run always just establishes its baseline, nothing to
   review. See [docs/VISUAL_REGRESSION.md](docs/VISUAL_REGRESSION.md).
+
+<p align="center">
+  <img src="docs/screenshots/visual-diffs.png" width="100%" alt="Visual Diffs page — baseline, current run, and a red-highlighted pixel diff side by side" />
+</p>
 - **AI Providers**: configure Ollama, OpenAI, Anthropic, Gemini, Azure
   OpenAI, or an OpenAI-compatible endpoint; test connectivity live; route
   individual AI-assisted task types (test planning, failure analysis,
