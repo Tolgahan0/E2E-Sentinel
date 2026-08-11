@@ -54,6 +54,10 @@ Two diamond shapes are the only places a human decision gates the flow:
 proposal** before it touches a temporary workspace (and again, separately,
 before it touches your real repository). Everything else is automatic.
 
+<p align="center">
+  <img src="docs/screenshots/dashboard.png" width="100%" alt="E2E Sentinel Dashboard — the pipeline above, rendered live" />
+</p>
+
 ## Getting started
 
 **Just want to run it, not develop it?** No repo checkout, no Go/Node
@@ -166,6 +170,10 @@ as more certain than the detection method actually warrants. If a
 running status if the Docker daemon is reachable (and "not observed" —
 not a false "not running" — if it isn't).
 
+<p align="center">
+  <img src="docs/screenshots/discovery.png" width="100%" alt="Discovery page — findings with file-path evidence and confidence levels" />
+</p>
+
 ### 3. Check the application graph — *Application Map* page
 
 Routes extracted during discovery become nodes; the graph links them to
@@ -174,6 +182,10 @@ reads from — if a route is missing here, it won't get a test case
 suggested for it either. See
 [Where does this come from?](#where-does-this-come-from) below for the
 full evidence chain.
+
+<p align="center">
+  <img src="docs/screenshots/application-map.png" width="100%" alt="Application Map page — routes, services, and the confidence-scored edges between them" />
+</p>
 
 ### 4. Set an environment's base URL — *Environments* page
 
@@ -192,6 +204,10 @@ and an "invalid credentials" case; an admin route gets an authorization
 check; a WebSocket endpoint gets a connectivity smoke test. Every
 suggestion is traceable back to the route and rule that produced it. No
 AI is involved in this step, ever.
+
+<p align="center">
+  <img src="docs/screenshots/test-inventory.png" width="100%" alt="Test Inventory page — suggested test cases with priority, mutating/production-safe flags, and confidence" />
+</p>
 
 ### 6. Review and approve — *Approvals* page
 
