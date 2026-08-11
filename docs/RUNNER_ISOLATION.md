@@ -219,10 +219,12 @@ URL if the target isn't local at all.
 
 ## Artifacts and retention
 
-`internal/artifacts.FileStore` stores stdout/stderr always, and
-screenshot/video/trace on failure (Playwright's own
-`screenshot: only-on-failure` / `video: retain-on-failure` /
-`trace: retain-on-failure` config, generated per run). Metadata
+`internal/artifacts.FileStore` stores stdout/stderr always; screenshots
+on *every* run (`screenshot: { mode: 'on', fullPage: true }` — needed
+by internal/visualdiff's baseline diffing, see
+[docs/VISUAL_REGRESSION.md](VISUAL_REGRESSION.md)); video/trace only on
+failure (`video: retain-on-failure` / `trace: retain-on-failure`).
+Metadata
 (checksum, MIME type, size, retention window) lives in Postgres; bytes
 live on the local filesystem (spec §4.1 MVP backend), under a Docker
 volume owned by a one-shot `artifacts-init` container (distroless has no

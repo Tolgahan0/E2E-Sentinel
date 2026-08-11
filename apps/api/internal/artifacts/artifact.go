@@ -18,6 +18,10 @@ const (
 	KindVideo      = "video"
 	KindTrace      = "trace"
 	KindHAR        = "har"
+	// KindScreenshotDiff is a visual regression diff image
+	// (internal/visualdiff) — a rendering of a run's screenshot against
+	// a stored baseline, not a screenshot Playwright itself produced.
+	KindScreenshotDiff = "screenshot_diff"
 )
 
 // Retention windows (spec §12): default 14 days, failed runs 30 days,

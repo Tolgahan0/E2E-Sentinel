@@ -20,6 +20,7 @@ const NAV_ITEMS = [
   { href: '/kubernetes', label: 'Kubernetes' },
   { href: '/test-inventory', label: 'Test Inventory' },
   { href: '/runs', label: 'Runs' },
+  { href: '/visual-diffs', label: 'Visual Diffs' },
   { href: '/bugs', label: 'Bugs' },
   { href: '/fix-proposals', label: 'Fix Proposals' },
   { href: '/ai-providers', label: 'AI Providers' },

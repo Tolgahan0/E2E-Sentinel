@@ -199,6 +199,29 @@ export interface ArtifactsResponse {
   artifacts: RunArtifact[] | null;
 }
 
+// A visual diff never changes a run's pass/fail — it's a separate
+// signal a human accepts (making current_artifact_id the new baseline)
+// or ignores. baseline/current/diff_artifact_id are all served via the
+// same GET /api/v1/artifacts/{id}/content endpoint regular screenshots use.
+export interface VisualDiff {
+  id: string;
+  project_id: string;
+  test_run_id: string;
+  test_case_id: string;
+  baseline_artifact_id: string;
+  current_artifact_id: string;
+  diff_artifact_id: string;
+  percent_changed: number;
+  status: 'pending_review' | 'accepted' | 'ignored';
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+}
+
+export interface VisualDiffsResponse {
+  visual_diffs: VisualDiff[] | null;
+}
+
 export type ProviderType = 'ollama' | 'openai' | 'anthropic' | 'gemini' | 'azure_openai' | 'openai_compatible';
 
 export const PROVIDER_TYPES: { value: ProviderType; label: string }[] = [

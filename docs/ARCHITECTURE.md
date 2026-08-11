@@ -34,6 +34,7 @@ apps/api (Go, chi router)
   +-- internal/testgen       Deterministic Playwright spec generation
   +-- internal/runs          Runner interface, TestRun tracking
   +-- internal/artifacts     Local-filesystem artifact storage
+  +-- internal/visualdiff    Screenshot-vs-baseline pixel diffing (pure Go image/png, no new dependency)
   +-- internal/providers     AI provider configuration, health checks, task routing
   +-- internal/secretstore   AES-256-GCM encryption for provider API keys
   +-- internal/redaction     Secret/token/credential scrubbing (not yet wired into the Phase 8 AI prompt, which sends only curated bug evidence, never raw repository content)

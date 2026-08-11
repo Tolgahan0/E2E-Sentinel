@@ -15,6 +15,7 @@ import (
 	"e2e-sentinel/apps/api/internal/planning"
 	"e2e-sentinel/apps/api/internal/runs"
 	"e2e-sentinel/apps/api/internal/testgen"
+	"e2e-sentinel/apps/api/internal/visualdiff"
 )
 
 type testRunResponse struct {
@@ -260,6 +261,9 @@ func executeRunAsync(deps Dependencies, runner runs.Runner, runID string, input 
 
 	artifactIDs := saveRunArtifacts(ctx, deps, runID, result)
 
+	var screenshotArtifactID string
+	var screenshotData []byte
+
 	if artifactFiles, err := runner.CollectArtifacts(ctx, runID); err != nil {
 		logger.Warn().Err(err).Str("run_id", runID).Msg("collecting artifacts failed")
 	} else {
@@ -269,8 +273,21 @@ func executeRunAsync(deps Dependencies, runner runs.Runner, runID string, input 
 				logger.Warn().Err(err).Str("run_id", runID).Str("kind", f.Kind).Msg("saving artifact failed")
 			} else {
 				artifactIDs = append(artifactIDs, a.ID)
+				// The Playwright config now captures a screenshot on
+				// every run, not just failures (see docker_runner.go) —
+				// the first one is what internal/visualdiff compares
+				// against this test case's baseline, regardless of
+				// whether the run itself passed or failed.
+				if f.Kind == artifacts.KindScreenshot && screenshotArtifactID == "" {
+					screenshotArtifactID = a.ID
+					screenshotData = f.Data
+				}
 			}
 		}
+	}
+
+	if screenshotArtifactID != "" {
+		processVisualDiff(ctx, deps, current, screenshotArtifactID, screenshotData)
 	}
 
 	if err := runner.Cleanup(ctx, runID); err != nil {
@@ -298,6 +315,78 @@ func executeRunAsync(deps Dependencies, runner runs.Runner, runID string, input 
 		Actor: "system", Metadata: map[string]any{"status": status, "exit_code": exitCode},
 	}); err != nil {
 		logger.Error().Err(err).Msg("recording test_run.completed audit event failed")
+	}
+}
+
+// processVisualDiff runs internal/visualdiff for a page test case's
+// fresh screenshot: establishes the baseline on a test case's first
+// run, or diffs against the existing baseline and records a
+// pending-review row when they differ. Never touches TestRun.Status —
+// a visual change is a separate signal a human accepts or ignores, not
+// a pass/fail verdict (spec's "pass/fail comes only from the runner's
+// exit code" rule is unchanged). Best-effort throughout: any failure
+// here is logged and never blocks or alters the run's own lifecycle.
+func processVisualDiff(ctx context.Context, deps Dependencies, run runs.TestRun, screenshotArtifactID string, screenshotData []byte) {
+	if deps.VisualDiffs == nil {
+		return
+	}
+
+	tc, err := deps.Planning.Get(ctx, run.TestCaseID)
+	if err != nil {
+		deps.Logger.Warn().Err(err).Str("run_id", run.ID).Msg("visual diff: getting test case failed")
+		return
+	}
+	// Same page-test predicate handleRunTest/TriggerRun use for
+	// isWebSocket — an API-only test (RouteMethod set) never renders a
+	// page, so it never produced a meaningful screenshot to diff.
+	if tc.Framework == "websocket" || tc.RouteMethod != "" {
+		return
+	}
+
+	baseline, err := deps.VisualDiffs.GetBaseline(ctx, tc.ID)
+	if errors.Is(err, visualdiff.ErrNotFound) {
+		if _, err := deps.VisualDiffs.SetBaseline(ctx, tc.ID, screenshotArtifactID, "system"); err != nil {
+			deps.Logger.Warn().Err(err).Str("run_id", run.ID).Msg("visual diff: setting initial baseline failed")
+		}
+		return
+	}
+	if err != nil {
+		deps.Logger.Warn().Err(err).Str("run_id", run.ID).Msg("visual diff: getting baseline failed")
+		return
+	}
+
+	baselineData, _, err := deps.Artifacts.Read(ctx, baseline.ArtifactID)
+	if err != nil {
+		deps.Logger.Warn().Err(err).Str("run_id", run.ID).Msg("visual diff: reading baseline artifact failed")
+		return
+	}
+
+	result, err := visualdiff.Compare(baselineData, screenshotData)
+	if err != nil {
+		deps.Logger.Warn().Err(err).Str("run_id", run.ID).Msg("visual diff: comparing screenshots failed")
+		return
+	}
+	if result.PercentChanged == 0 {
+		return // pixel-identical — nothing to add to the review queue
+	}
+
+	diffArtifact, err := deps.Artifacts.Save(ctx, run.ID, artifacts.KindScreenshotDiff, "image/png", result.DiffPNG, time.Now().Add(artifacts.RetentionDefault))
+	if err != nil {
+		deps.Logger.Warn().Err(err).Str("run_id", run.ID).Msg("visual diff: saving diff image failed")
+		return
+	}
+
+	if _, err := deps.VisualDiffs.CreateDiff(ctx, visualdiff.Diff{
+		ProjectID:          run.ProjectID,
+		TestRunID:          run.ID,
+		TestCaseID:         tc.ID,
+		BaselineArtifactID: baseline.ArtifactID,
+		CurrentArtifactID:  screenshotArtifactID,
+		DiffArtifactID:     diffArtifact.ID,
+		PercentChanged:     result.PercentChanged,
+		Status:             visualdiff.StatusPendingReview,
+	}); err != nil {
+		deps.Logger.Warn().Err(err).Str("run_id", run.ID).Msg("visual diff: creating diff row failed")
 	}
 }
 
@@ -434,7 +523,7 @@ func handleGetArtifactContent(deps Dependencies) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", meta.MimeType)
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		if meta.Kind != artifacts.KindScreenshot {
+		if meta.Kind != artifacts.KindScreenshot && meta.Kind != artifacts.KindScreenshotDiff {
 			w.Header().Set("Content-Disposition", "attachment")
 		}
 		w.WriteHeader(http.StatusOK)

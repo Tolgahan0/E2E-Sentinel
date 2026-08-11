@@ -28,6 +28,7 @@ import (
 	"e2e-sentinel/apps/api/internal/services"
 	"e2e-sentinel/apps/api/internal/settings"
 	"e2e-sentinel/apps/api/internal/updatecheck"
+	"e2e-sentinel/apps/api/internal/visualdiff"
 	"e2e-sentinel/apps/api/internal/webhooks"
 )
 
@@ -53,6 +54,7 @@ func newTestDeps(pgErr, redisErr error) Dependencies {
 		Failures:           failures.NewMemoryStore(),
 		Bugs:               bugreports.NewMemoryStore(),
 		FixProposals:       fixproposals.NewMemoryStore(),
+		VisualDiffs:        visualdiff.NewMemoryStore(),
 		ProviderHealth:     providers.NewHealthChecker(nil),
 		Completer:          providers.NewCompleter(nil),
 		FixWorkspacesDir:   testFixWorkspacesDir(),

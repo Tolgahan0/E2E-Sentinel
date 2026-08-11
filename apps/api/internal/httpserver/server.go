@@ -33,6 +33,7 @@ import (
 	"e2e-sentinel/apps/api/internal/services"
 	"e2e-sentinel/apps/api/internal/settings"
 	"e2e-sentinel/apps/api/internal/updatecheck"
+	"e2e-sentinel/apps/api/internal/visualdiff"
 	"e2e-sentinel/apps/api/internal/webhooks"
 )
 
@@ -62,6 +63,13 @@ type Dependencies struct {
 	Failures     failures.Store
 	Bugs         bugreports.Store
 	FixProposals fixproposals.Store
+	// VisualDiffs is always set in production (main.go) — visual
+	// regression testing has no "unconfigured" state to guard, every
+	// browser-based test case gets a baseline on its first run
+	// automatically, no setup required. nil is treated as "skip visual
+	// diff processing entirely" (processVisualDiff in runs_handlers.go),
+	// which only a test that doesn't care about this feature would do.
+	VisualDiffs visualdiff.Store
 	// ProviderHealth performs the live "test connection" check (spec
 	// §16.3). Always set — building it needs no credentials of its own.
 	ProviderHealth *providers.HealthChecker
@@ -213,6 +221,7 @@ func NewRouter(deps Dependencies) http.Handler {
 					r.Get("/tests", handleListTests(deps))
 					r.Get("/runs", handleListProjectRuns(deps))
 					r.Get("/fix-proposals", handleListProjectFixProposals(deps))
+					r.Get("/visual-diffs", handleListProjectVisualDiffs(deps))
 				})
 			})
 
@@ -233,6 +242,12 @@ func NewRouter(deps Dependencies) http.Handler {
 			})
 
 			r.Get("/artifacts/{artifactID}/content", handleGetArtifactContent(deps))
+
+			r.Route("/visual-diffs/{diffID}", func(r chi.Router) {
+				r.Get("/", handleGetVisualDiff(deps))
+				r.With(requirePermission(deps, auth.PermApproveTestPlans)).Post("/accept", handleAcceptVisualDiff(deps))
+				r.With(requirePermission(deps, auth.PermApproveTestPlans)).Post("/ignore", handleIgnoreVisualDiff(deps))
+			})
 
 			r.Route("/users", func(r chi.Router) {
 				r.With(requirePermission(deps, auth.PermManageUsers)).Get("/", handleListUsers(deps))

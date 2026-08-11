@@ -21,8 +21,10 @@ environment-specific URLs baked into the spec itself (the target URL is
 injected from the project's `Environment.base_url` at generation time,
 not hard-coded in a template). They don't yet use accessible-role-based
 locators or reusable fixtures beyond the fixed Playwright config
-(`screenshot: only-on-failure`, `video: retain-on-failure`,
-`trace: retain-on-failure`) — there's no page structure to derive a
+(`screenshot: { mode: 'on', fullPage: true }` — every run, not just
+failures, since internal/visualdiff diffs it against a baseline;
+`video: retain-on-failure`, `trace: retain-on-failure` stay
+failure-only) — there's no page structure to derive a
 richer locator from without AI or a schema, which is the honest ceiling
 documented above.
 

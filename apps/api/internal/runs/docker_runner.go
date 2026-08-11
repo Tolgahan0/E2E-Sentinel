@@ -66,13 +66,19 @@ func (r *DockerPlaywrightRunner) workspaceDir(runID string) string {
 	return filepath.Join(r.WorkspaceContainerDir, runID)
 }
 
+// screenshot is { mode: 'on', fullPage: true } rather than the simpler
+// 'only-on-failure' — visual regression testing (internal/visualdiff)
+// needs a screenshot from every run, pass or fail, to diff against a
+// stored baseline. fullPage matters here specifically: a viewport-only
+// shot would make an unrelated below-the-fold change invisible to the
+// diff.
 const playwrightConfigTemplate = `import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: '.',
   timeout: 60_000,
   reporter: [['list']],
   use: {
-    screenshot: 'only-on-failure',
+    screenshot: { mode: 'on', fullPage: true },
     video: 'retain-on-failure',
     trace: 'retain-on-failure',
   },

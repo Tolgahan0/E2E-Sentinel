@@ -320,6 +320,7 @@ its own failure/bug trail.
 | Test Inventory | Every suggested test case, approved or not | A route you care about has at least one suggested case |
 | Approvals | The human gate before anything runs | Nothing is stuck "pending" that you meant to approve or reject |
 | Runs | Live and historical test executions | A run reaches `passed`/`failed`, not stuck `running` |
+| Visual Diffs | Screenshot-vs-baseline review queue | A page test case's second run onward shows a diff here whenever its screenshot changed |
 | Bugs | Classified, deduplicated failure reports | One bug per real problem, not one per failed run |
 | Fix Proposals | Reviewable diffs for open bugs | The diff matches what you'd expect from the bug's evidence |
 | Environments | Per-environment base URL + safety classification | `base_url` is set before you try to run anything |
@@ -365,11 +366,21 @@ its own failure/bug trail.
   resource-limited Docker container — a real Chromium browser for page
   tests, an HTTP request for API tests. The generated spec is templated
   deterministically (no AI). Pass/fail comes only from the container's
-  exit code. Failed runs capture stdout/stderr, a screenshot, a video,
-  and a Playwright trace automatically; runner containers are removed
+  exit code. Every run captures stdout/stderr and a full-page
+  screenshot; a failed run additionally captures a video and a
+  Playwright trace. Runner containers are removed
   after every run, including failures. Cancellation stops the container
   by a deterministic name, so it works even though execution runs in a
   background goroutine.
+- **Visual regression testing**: every browser-based test run's
+  full-page screenshot is diffed (`internal/visualdiff`, pure Go
+  `image`/`image/png` pixel comparison — no new dependency) against a
+  stored baseline for that test case. A visual change never fails a
+  test on its own — pass/fail still comes only from the runner's exit
+  code — it's surfaced on the *Visual Diffs* page for a human to
+  **Accept** (making it the new baseline) or **Ignore**. A test case's
+  first-ever run always just establishes its baseline, nothing to
+  review. See [docs/VISUAL_REGRESSION.md](docs/VISUAL_REGRESSION.md).
 - **AI Providers**: configure Ollama, OpenAI, Anthropic, Gemini, Azure
   OpenAI, or an OpenAI-compatible endpoint; test connectivity live; route
   individual AI-assisted task types (test planning, failure analysis,

@@ -38,6 +38,7 @@ import (
 	"e2e-sentinel/apps/api/internal/services"
 	"e2e-sentinel/apps/api/internal/settings"
 	"e2e-sentinel/apps/api/internal/updatecheck"
+	"e2e-sentinel/apps/api/internal/visualdiff"
 	"e2e-sentinel/apps/api/internal/webhooks"
 )
 
@@ -272,6 +273,7 @@ func run(migrateOnly bool) error {
 		Failures:           failures.NewPostgresStore(pgPool),
 		Bugs:               bugreports.NewPostgresStore(pgPool),
 		FixProposals:       fixproposals.NewPostgresStore(pgPool),
+		VisualDiffs:        visualdiff.NewPostgresStore(pgPool),
 		ProviderHealth:     providers.NewHealthChecker(nil),
 		Completer:          providers.NewCompleter(nil),
 		FixWorkspacesDir:   cfg.FixWorkspacesDir,
