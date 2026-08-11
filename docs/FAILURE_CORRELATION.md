@@ -60,6 +60,29 @@ The assessment is attached to the bug report as `flaky_assessment` and
 always shown — a flaky label never hides or suppresses a bug (spec
 §13.2 "do not silently hide flaky tests").
 
+This reactive assessment only fires on a failing run, and only the
+latest value survives (overwritten on the bug report each time). A
+test case that is *currently* passing — even if it flaked several runs
+ago — has no signal anywhere under this path.
+
+### Flaky Tests dashboard
+
+`GET /projects/{projectID}/flaky-tests` (`handleListFlakyTests`) closes
+that gap with a proactive, project-wide view, computed on read instead
+of stored: for every test case with at least one run, it fetches the
+full run history and calls `AssessFlakiness` directly, independent of
+whether the test case's most recent run passed or failed. Test cases
+with zero runs are excluded (nothing to assess yet); everything else is
+included, sorted most-actionable-first (`flaky`, `flaky_candidate`,
+`suspect`, `likely_real_defect`, then `insufficient_evidence` last).
+
+Nothing is persisted — no migration, no new column — so the result is
+always current, at the cost of one `ListByTestCase` query per test case
+(an N+1 pattern, accepted at today's scale rather than pre-optimized).
+The web panel's Flaky Tests page renders this list with a pill per
+assessment tier and a dot-row sparkline of each test case's last 10
+runs.
+
 ## Bug reports (`internal/bugreports`)
 
 `UpsertFromFailure` is keyed by `(project_id, test_case_id,

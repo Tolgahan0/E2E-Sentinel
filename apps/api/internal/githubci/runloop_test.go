@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path"
 	"testing"
 	"time"
 
@@ -66,6 +67,40 @@ func immediateTrigger(store runs.Store, statusByTestCase map[string]string) Trig
 	}
 }
 
+// postedStatus records one commit-status POST along with which SHA it
+// was posted to — newFakeGitHubServer doesn't need this (it only ever
+// deals with one SHA), but a PR-polling test has to tell a status
+// posted to the branch tip apart from one posted to a PR head.
+type postedStatus struct {
+	SHA    string
+	Status CommitStatus
+}
+
+// newFakeGitHubServerWithPRs is newFakeGitHubServer's PR-aware sibling:
+// it serves a fixed branch-tip SHA on GET .../commits/*, a fixed list
+// of open pull requests on GET .../pulls, and records every
+// commit-status POST (with the SHA it targeted) into statuses.
+func newFakeGitHubServerWithPRs(t *testing.T, branchSHA string, prs []PullRequest, statuses *[]postedStatus) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && path.Base(r.URL.Path) == "pulls":
+			body := make([]map[string]any, 0, len(prs))
+			for _, pr := range prs {
+				body = append(body, map[string]any{"number": pr.Number, "head": map[string]string{"sha": pr.HeadSHA}})
+			}
+			_ = json.NewEncoder(w).Encode(body)
+		case r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]string{"sha": branchSHA})
+		case r.Method == http.MethodPost:
+			var body CommitStatus
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			*statuses = append(*statuses, postedStatus{SHA: path.Base(r.URL.Path), Status: body})
+			w.WriteHeader(http.StatusCreated)
+		}
+	}))
+}
+
 func seedApprovedTestCase(t *testing.T, store planning.Store, projectID, title string) planning.TestCase {
 	t.Helper()
 	tc, _, err := store.CreateIfAbsent(context.Background(), planning.TestCase{
@@ -119,7 +154,7 @@ func TestPollOnce_TriggersOnlyApprovedCasesAndReportsSuccess(t *testing.T) {
 	client := NewClient(nil)
 	client.BaseURL = srv.URL
 
-	PollOnce(context.Background(), projectStore, runStore, planningStore, secrets, client, trigger, zerolog.Nop())
+	PollOnce(context.Background(), projectStore, runStore, planningStore, secrets, NewMemoryPRTracker(), client, trigger, zerolog.Nop())
 
 	if len(triggeredIDs) != 1 || triggeredIDs[0] != approved.ID {
 		t.Fatalf("triggered = %v, want exactly [%s] (pending case %s must not run)", triggeredIDs, approved.ID, pending.ID)
@@ -169,7 +204,7 @@ func TestPollOnce_ReportsFailureWhenAnyRunFails(t *testing.T) {
 	client := NewClient(nil)
 	client.BaseURL = srv.URL
 
-	PollOnce(context.Background(), projectStore, runStore, planningStore, secrets, client, trigger, zerolog.Nop())
+	PollOnce(context.Background(), projectStore, runStore, planningStore, secrets, NewMemoryPRTracker(), client, trigger, zerolog.Nop())
 
 	if len(statuses) != 2 {
 		t.Fatalf("posted %d statuses, want 2", len(statuses))
@@ -207,7 +242,7 @@ func TestPollOnce_SkipsUnchangedCommit(t *testing.T) {
 	client := NewClient(nil)
 	client.BaseURL = srv.URL
 
-	PollOnce(context.Background(), projectStore, runStore, planningStore, secrets, client, trigger, zerolog.Nop())
+	PollOnce(context.Background(), projectStore, runStore, planningStore, secrets, NewMemoryPRTracker(), client, trigger, zerolog.Nop())
 
 	if triggerCalls != 0 {
 		t.Errorf("trigger called %d times, want 0 (commit already at last-seen sha)", triggerCalls)
@@ -239,10 +274,114 @@ func TestPollOnce_NoApprovedCasesReportsSuccess(t *testing.T) {
 	client := NewClient(nil)
 	client.BaseURL = srv.URL
 
-	PollOnce(context.Background(), projectStore, runStore, planningStore, secrets, client, trigger, zerolog.Nop())
+	PollOnce(context.Background(), projectStore, runStore, planningStore, secrets, NewMemoryPRTracker(), client, trigger, zerolog.Nop())
 
 	if len(statuses) != 2 || statuses[1].State != StatusSuccess {
 		t.Fatalf("statuses = %+v, want [pending, success]", statuses)
+	}
+}
+
+func TestPollOnce_TriggersRunAndReportsStatusOnPRHeadSHA(t *testing.T) {
+	var statuses []postedStatus
+	prs := []PullRequest{{Number: 42, HeadSHA: "pr-sha-1"}}
+	srv := newFakeGitHubServerWithPRs(t, "branch-sha-1", prs, &statuses)
+	defer srv.Close()
+
+	projectStore := projects.NewMemoryStore()
+	runStore := runs.NewMemoryStore()
+	planningStore := planning.NewMemoryStore()
+	secrets := secretstore.NewMemoryStore(testEncryptor(t))
+	prTracker := NewMemoryPRTracker()
+
+	tokenID, err := secrets.Create(context.Background(), "shh")
+	if err != nil {
+		t.Fatalf("Create secret: %v", err)
+	}
+	project, err := projectStore.Create(context.Background(), projects.Project{Name: "acme", Slug: "acme", RepositoryPath: "/tmp/acme"})
+	if err != nil {
+		t.Fatalf("creating project: %v", err)
+	}
+	project, err = projectStore.SetGitHubCI(context.Background(), project.ID, "acme/widget", tokenID)
+	if err != nil {
+		t.Fatalf("SetGitHubCI: %v", err)
+	}
+	// Branch already at latest, so only the open PR should trigger a run.
+	if err := projectStore.SetLastCICommitSHA(context.Background(), project.ID, "branch-sha-1"); err != nil {
+		t.Fatalf("SetLastCICommitSHA: %v", err)
+	}
+
+	seedApprovedTestCase(t, planningStore, project.ID, "approved case")
+
+	var triggeredSHAs []string
+	trigger := func(ctx context.Context, testCaseID, triggerType, triggeredBy, commitSHA string) (runs.TestRun, error) {
+		triggeredSHAs = append(triggeredSHAs, commitSHA)
+		return immediateTrigger(runStore, nil)(ctx, testCaseID, triggerType, triggeredBy, commitSHA)
+	}
+
+	client := NewClient(nil)
+	client.BaseURL = srv.URL
+
+	PollOnce(context.Background(), projectStore, runStore, planningStore, secrets, prTracker, client, trigger, zerolog.Nop())
+
+	if len(triggeredSHAs) != 1 || triggeredSHAs[0] != "pr-sha-1" {
+		t.Fatalf("triggered SHAs = %v, want exactly [pr-sha-1] (branch unchanged, only the PR is new)", triggeredSHAs)
+	}
+
+	var prStatuses []CommitStatus
+	for _, s := range statuses {
+		if s.SHA == "pr-sha-1" {
+			prStatuses = append(prStatuses, s.Status)
+		}
+	}
+	if len(prStatuses) != 2 || prStatuses[0].State != StatusPending || prStatuses[1].State != StatusSuccess {
+		t.Fatalf("statuses posted to the PR head sha = %+v, want [pending, success]", prStatuses)
+	}
+
+	seen, err := prTracker.LastSeenSHA(context.Background(), project.ID, 42)
+	if err != nil {
+		t.Fatalf("LastSeenSHA: %v", err)
+	}
+	if seen != "pr-sha-1" {
+		t.Errorf("LastSeenSHA = %q, want pr-sha-1 (should be recorded after a successful poll)", seen)
+	}
+}
+
+func TestPollOnce_SkipsPRWithUnchangedHeadSHA(t *testing.T) {
+	var statuses []postedStatus
+	prs := []PullRequest{{Number: 42, HeadSHA: "pr-sha-1"}}
+	srv := newFakeGitHubServerWithPRs(t, "branch-sha-1", prs, &statuses)
+	defer srv.Close()
+
+	projectStore := projects.NewMemoryStore()
+	runStore := runs.NewMemoryStore()
+	planningStore := planning.NewMemoryStore()
+	secrets := secretstore.NewMemoryStore(testEncryptor(t))
+	prTracker := NewMemoryPRTracker()
+
+	tokenID, _ := secrets.Create(context.Background(), "shh")
+	project, _ := projectStore.Create(context.Background(), projects.Project{Name: "acme", Slug: "acme", RepositoryPath: "/tmp/acme"})
+	project, _ = projectStore.SetGitHubCI(context.Background(), project.ID, "acme/widget", tokenID)
+	if err := projectStore.SetLastCICommitSHA(context.Background(), project.ID, "branch-sha-1"); err != nil {
+		t.Fatalf("SetLastCICommitSHA: %v", err)
+	}
+	if err := prTracker.SetLastSeenSHA(context.Background(), project.ID, 42, "pr-sha-1"); err != nil {
+		t.Fatalf("SetLastSeenSHA: %v", err)
+	}
+
+	seedApprovedTestCase(t, planningStore, project.ID, "approved case")
+
+	trigger := func(ctx context.Context, testCaseID, triggerType, triggeredBy, commitSHA string) (runs.TestRun, error) {
+		t.Fatalf("trigger should not be called: branch is unchanged and the PR head sha was already seen")
+		return runs.TestRun{}, nil
+	}
+
+	client := NewClient(nil)
+	client.BaseURL = srv.URL
+
+	PollOnce(context.Background(), projectStore, runStore, planningStore, secrets, prTracker, client, trigger, zerolog.Nop())
+
+	if len(statuses) != 0 {
+		t.Errorf("posted %d statuses, want 0 (nothing new on either the branch or the PR)", len(statuses))
 	}
 }
 
@@ -262,7 +401,7 @@ func TestRunLoop_StopsOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		RunLoop(ctx, projectStore, runStore, planningStore, secrets, client, immediateTrigger(runStore, nil), time.Hour, zerolog.Nop())
+		RunLoop(ctx, projectStore, runStore, planningStore, secrets, NewMemoryPRTracker(), client, immediateTrigger(runStore, nil), time.Hour, zerolog.Nop())
 		close(done)
 	}()
 

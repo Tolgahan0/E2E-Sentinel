@@ -35,12 +35,13 @@ func RunLoop(
 	runStore runs.Store,
 	planningStore planning.Store,
 	secrets secretstore.Store,
+	prTracker PRTracker,
 	client *Client,
 	trigger TriggerFunc,
 	interval time.Duration,
 	logger zerolog.Logger,
 ) {
-	PollOnce(ctx, projectStore, runStore, planningStore, secrets, client, trigger, logger)
+	PollOnce(ctx, projectStore, runStore, planningStore, secrets, prTracker, client, trigger, logger)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -48,20 +49,22 @@ func RunLoop(
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			PollOnce(ctx, projectStore, runStore, planningStore, secrets, client, trigger, logger)
+			PollOnce(ctx, projectStore, runStore, planningStore, secrets, prTracker, client, trigger, logger)
 		}
 	}
 }
 
-// PollOnce checks every github-ci-configured project once. Exported
-// (rather than an unexported closure inside RunLoop) so tests can drive
-// a single, deterministic pass without a real timer.
+// PollOnce checks every github-ci-configured project once — its
+// default branch, then every one of its currently open pull requests.
+// Exported (rather than an unexported closure inside RunLoop) so tests
+// can drive a single, deterministic pass without a real timer.
 func PollOnce(
 	ctx context.Context,
 	projectStore projects.Store,
 	runStore runs.Store,
 	planningStore planning.Store,
 	secrets secretstore.Store,
+	prTracker PRTracker,
 	client *Client,
 	trigger TriggerFunc,
 	logger zerolog.Logger,
@@ -72,7 +75,20 @@ func PollOnce(
 		return
 	}
 	for _, p := range list {
-		pollProject(ctx, projectStore, runStore, planningStore, secrets, client, trigger, p, logger)
+		log := logger.With().Str("project_id", p.ID).Str("github_repo", p.GitHubRepo).Logger()
+
+		if secrets == nil || p.GitHubTokenSecretReferenceID == "" {
+			log.Warn().Msg("github-ci: no token configured, skipping")
+			continue
+		}
+		token, err := secrets.Resolve(ctx, p.GitHubTokenSecretReferenceID)
+		if err != nil {
+			log.Warn().Err(err).Msg("github-ci: resolving token failed")
+			continue
+		}
+
+		pollProject(ctx, projectStore, runStore, planningStore, client, trigger, p, token, log)
+		pollPullRequests(ctx, runStore, planningStore, prTracker, client, trigger, p, token, log)
 	}
 }
 
@@ -81,24 +97,12 @@ func pollProject(
 	projectStore projects.Store,
 	runStore runs.Store,
 	planningStore planning.Store,
-	secrets secretstore.Store,
 	client *Client,
 	trigger TriggerFunc,
 	p projects.Project,
-	logger zerolog.Logger,
+	token string,
+	log zerolog.Logger,
 ) {
-	log := logger.With().Str("project_id", p.ID).Str("github_repo", p.GitHubRepo).Logger()
-
-	if secrets == nil || p.GitHubTokenSecretReferenceID == "" {
-		log.Warn().Msg("github-ci: no token configured, skipping")
-		return
-	}
-	token, err := secrets.Resolve(ctx, p.GitHubTokenSecretReferenceID)
-	if err != nil {
-		log.Warn().Err(err).Msg("github-ci: resolving token failed")
-		return
-	}
-
 	branch := p.DefaultBranch
 	if branch == "" {
 		branch = "main"
@@ -112,9 +116,77 @@ func pollProject(
 	if sha == p.LastCICommitSHA {
 		return // nothing new since the last tick
 	}
+
+	runApprovedAndReportStatus(ctx, runStore, planningStore, client, trigger, p.ID, p.GitHubRepo, sha, token, log)
+
+	if err := projectStore.SetLastCICommitSHA(ctx, p.ID, sha); err != nil {
+		log.Warn().Err(err).Msg("github-ci: recording last CI commit sha failed")
+	}
+}
+
+// pollPullRequests is pollProject's per-PR sibling: the same
+// trigger-approved-tests-and-report-status behavior, but against every
+// currently open pull request's head commit instead of just the
+// default branch, so a still-open PR shows its own check rather than
+// only the branch it'll eventually land on. GitHub's Commit Status API
+// treats a PR head SHA no differently from a branch tip SHA — this
+// needs no changes to trigger, runs.TestRun, or how a status is
+// posted, only a different SHA source and a per-PR "last seen" store
+// (a projects.Project row only has room for one).
+func pollPullRequests(
+	ctx context.Context,
+	runStore runs.Store,
+	planningStore planning.Store,
+	prTracker PRTracker,
+	client *Client,
+	trigger TriggerFunc,
+	p projects.Project,
+	token string,
+	log zerolog.Logger,
+) {
+	prs, err := client.OpenPullRequests(ctx, p.GitHubRepo, token)
+	if err != nil {
+		log.Warn().Err(err).Msg("github-ci: listing open pull requests failed")
+		return
+	}
+	for _, pr := range prs {
+		prLog := log.With().Int("pr_number", pr.Number).Logger()
+
+		lastSeen, err := prTracker.LastSeenSHA(ctx, p.ID, pr.Number)
+		if err != nil {
+			prLog.Warn().Err(err).Msg("github-ci: reading last seen PR commit failed")
+			continue
+		}
+		if pr.HeadSHA == lastSeen {
+			continue // nothing new on this PR since the last tick
+		}
+
+		runApprovedAndReportStatus(ctx, runStore, planningStore, client, trigger, p.ID, p.GitHubRepo, pr.HeadSHA, token, prLog)
+
+		if err := prTracker.SetLastSeenSHA(ctx, p.ID, pr.Number, pr.HeadSHA); err != nil {
+			prLog.Warn().Err(err).Msg("github-ci: recording last seen PR commit failed")
+		}
+	}
+}
+
+// runApprovedAndReportStatus posts a pending status for sha, runs
+// every approved test case in projectID against it, then posts the
+// aggregate final status — the shared tail of both branch polling and
+// PR polling. Which "last seen" store gets updated afterward is the
+// caller's job, since a branch tip and a PR head are remembered in
+// different places.
+func runApprovedAndReportStatus(
+	ctx context.Context,
+	runStore runs.Store,
+	planningStore planning.Store,
+	client *Client,
+	trigger TriggerFunc,
+	projectID, repo, sha, token string,
+	log zerolog.Logger,
+) {
 	log = log.With().Str("commit_sha", sha).Logger()
 
-	if err := client.SetCommitStatus(ctx, p.GitHubRepo, sha, token, CommitStatus{
+	if err := client.SetCommitStatus(ctx, repo, sha, token, CommitStatus{
 		State: StatusPending, Description: "E2E Sentinel: running approved test cases",
 	}); err != nil {
 		// A failed status post is never a reason to skip actually
@@ -122,7 +194,7 @@ func pollProject(
 		log.Warn().Err(err).Msg("github-ci: posting pending status failed")
 	}
 
-	cases, err := planningStore.List(ctx, p.ID)
+	cases, err := planningStore.List(ctx, projectID)
 	if err != nil {
 		log.Warn().Err(err).Msg("github-ci: listing test cases failed")
 		return
@@ -147,12 +219,8 @@ func pollProject(
 	}
 
 	status := aggregateStatus(finished)
-	if err := client.SetCommitStatus(ctx, p.GitHubRepo, sha, token, status); err != nil {
+	if err := client.SetCommitStatus(ctx, repo, sha, token, status); err != nil {
 		log.Warn().Err(err).Msg("github-ci: posting final status failed")
-	}
-
-	if err := projectStore.SetLastCICommitSHA(ctx, p.ID, sha); err != nil {
-		log.Warn().Err(err).Msg("github-ci: recording last CI commit sha failed")
 	}
 }
 

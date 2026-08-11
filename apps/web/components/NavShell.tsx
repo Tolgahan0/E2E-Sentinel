@@ -22,6 +22,7 @@ const NAV_ITEMS = [
   { href: '/runs', label: 'Runs' },
   { href: '/visual-diffs', label: 'Visual Diffs' },
   { href: '/bugs', label: 'Bugs' },
+  { href: '/flaky-tests', label: 'Flaky Tests' },
   { href: '/fix-proposals', label: 'Fix Proposals' },
   { href: '/ai-providers', label: 'AI Providers' },
   { href: '/environments', label: 'Environments' },

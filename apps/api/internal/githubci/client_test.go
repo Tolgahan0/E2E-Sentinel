@@ -96,6 +96,51 @@ func TestSetCommitStatus_PostsExpectedPayload(t *testing.T) {
 	}
 }
 
+func TestOpenPullRequests_ReturnsNumberAndHeadSHA(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/acme/widget/pulls" {
+			t.Errorf("path = %q, want /repos/acme/widget/pulls", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("state"); got != "open" {
+			t.Errorf("state query param = %q, want open", got)
+		}
+		if got := r.Header.Get("Authorization"); got != "token shh" {
+			t.Errorf("Authorization header = %q, want %q", got, "token shh")
+		}
+		_ = json.NewEncoder(w).Encode([]map[string]any{
+			{"number": 7, "head": map[string]string{"sha": "cafef00d"}},
+			{"number": 9, "head": map[string]string{"sha": "deadbeef"}},
+		})
+	}))
+	defer srv.Close()
+
+	client := NewClient(nil)
+	client.BaseURL = srv.URL
+
+	prs, err := client.OpenPullRequests(context.Background(), "acme/widget", "shh")
+	if err != nil {
+		t.Fatalf("OpenPullRequests() error = %v", err)
+	}
+	want := []PullRequest{{Number: 7, HeadSHA: "cafef00d"}, {Number: 9, HeadSHA: "deadbeef"}}
+	if len(prs) != len(want) || prs[0] != want[0] || prs[1] != want[1] {
+		t.Errorf("OpenPullRequests() = %+v, want %+v", prs, want)
+	}
+}
+
+func TestOpenPullRequests_NonOKStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	client := NewClient(nil)
+	client.BaseURL = srv.URL
+
+	if _, err := client.OpenPullRequests(context.Background(), "acme/widget", "shh"); err == nil {
+		t.Fatal("OpenPullRequests() error = nil, want an error for a 404 response")
+	}
+}
+
 func TestSetCommitStatus_NonSuccessStatus(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnprocessableEntity)

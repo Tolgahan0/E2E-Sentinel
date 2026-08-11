@@ -2,9 +2,10 @@
 
 `internal/githubci` gives E2E Sentinel a way to react to new code
 automatically instead of waiting for someone to click "Run": on an
-interval, it checks each configured project's default branch for a new
-commit, runs every currently-*approved* test case for that project, and
-reports one aggregate status back to the commit on GitHub — the same
+interval, it checks each configured project's default branch **and**
+every one of its currently open pull requests for a new commit, runs
+every currently-*approved* test case for that project against it, and
+reports one aggregate status back to that commit on GitHub — the same
 green/red check you'd see from a GitHub Actions workflow.
 
 ## Why polling, not a webhook
@@ -51,9 +52,18 @@ trade-off is latency: a new commit is noticed within one poll interval
 - **Every approved test case runs, every time**, for v1 — there's no
   per-test "run in CI" flag yet. For a project with a large suite where
   that's too slow, see "Not yet built" below.
-- **Only the default branch is polled.** A pull request's own commits
-  aren't checked, and no per-PR status is posted — v1 only reports
-  against the branch itself.
+- **Both the default branch and every open pull request are polled.**
+  GitHub's Commit Status API works identically for any commit SHA — a
+  branch tip or a PR head — so a still-open PR gets its own `pending` →
+  `success`/`failure` check on its own latest commit, not just on the
+  branch it'll eventually land on. "New since last time" is tracked per
+  branch (on the project itself) and separately per PR (`github_ci_pull_requests`,
+  keyed by PR number), so a push to one doesn't cause a re-run of the
+  other, and each is otherwise identical: same approved-test-cases-only
+  rule, same aggregate status shape. A PR that's closed or merged simply
+  stops appearing in the open-PR list; its tracking row is left in place
+  rather than cleaned up (harmless — it's never read again unless the
+  same PR number is reopened).
 - **What GitHub receives back**: a commit status — `state`
   (`pending`/`success`/`failure`), a short `description` (e.g. "3/3
   passed"), and a fixed `context` of `e2e-sentinel`. Never repository
@@ -61,10 +71,6 @@ trade-off is latency: a new commit is noticed within one poll interval
 
 ## Not yet built (deliberately, not silently dropped)
 
-- **Per-PR triggering and status.** Polling each open PR's head commit
-  (not just the default branch) and posting a status to the PR's own
-  commit, so a still-open PR shows its own check instead of only the
-  branch it'll eventually land on.
 - **GitHub Checks API.** The Commit Status API (what v1 uses) needs
   only a PAT — no GitHub App install, no extra setup. The Checks API is
   richer (per-test annotations grouped under one check run) but needs a

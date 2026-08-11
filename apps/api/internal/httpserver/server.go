@@ -222,6 +222,7 @@ func NewRouter(deps Dependencies) http.Handler {
 					r.Get("/runs", handleListProjectRuns(deps))
 					r.Get("/fix-proposals", handleListProjectFixProposals(deps))
 					r.Get("/visual-diffs", handleListProjectVisualDiffs(deps))
+					r.Get("/flaky-tests", handleListFlakyTests(deps))
 				})
 			})
 

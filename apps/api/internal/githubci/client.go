@@ -97,6 +97,52 @@ func (c *Client) LatestCommit(ctx context.Context, repo, branch, token string) (
 	return body.SHA, nil
 }
 
+// PullRequest is one open pull request's number and current head SHA,
+// as returned by OpenPullRequests.
+type PullRequest struct {
+	Number  int
+	HeadSHA string
+}
+
+// OpenPullRequests lists repo's currently open pull requests. repo is
+// "owner/name". token is a GitHub PAT with at least read access to
+// repo — never included in a returned error, same as LatestCommit.
+func (c *Client) OpenPullRequests(ctx context.Context, repo, token string) ([]PullRequest, error) {
+	target := fmt.Sprintf("%s/repos/%s/pulls?state=open", c.baseURL(), repo)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return nil, fmt.Errorf("githubci: building request: %w", err)
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Authorization", "token "+token)
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("githubci: GitHub API unreachable: %s", scrubToken(err.Error(), token))
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("githubci: GitHub API returned %d listing open pull requests", resp.StatusCode)
+	}
+
+	var body []struct {
+		Number int `json:"number"`
+		Head   struct {
+			SHA string `json:"sha"`
+		} `json:"head"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&body); err != nil {
+		return nil, fmt.Errorf("githubci: parsing pull requests response: %w", err)
+	}
+
+	prs := make([]PullRequest, 0, len(body))
+	for _, pr := range body {
+		prs = append(prs, PullRequest{Number: pr.Number, HeadSHA: pr.Head.SHA})
+	}
+	return prs, nil
+}
+
 // CommitStatus is what SetCommitStatus reports. GitHub's Commit Status
 // API needs only a PAT with repo:status scope — no GitHub App, no
 // Checks API — matching this project's minimal-setup philosophy (a

@@ -222,6 +222,25 @@ export interface VisualDiffsResponse {
   visual_diffs: VisualDiff[] | null;
 }
 
+// Computed on read from a test case's real run history
+// (internal/failures.AssessFlakiness) — never persisted, so this is
+// always current, not a stale snapshot from the last failure.
+export type FlakyAssessment = 'insufficient_evidence' | 'suspect' | 'flaky_candidate' | 'flaky' | 'likely_real_defect';
+
+export interface FlakyTest {
+  test_case_id: string;
+  title: string;
+  assessment: FlakyAssessment;
+  total_runs: number;
+  // Oldest-first, capped to the last 10 runs — a sparkline, not the
+  // full history (see the Runs page for that).
+  recent_statuses: RunStatus[];
+}
+
+export interface FlakyTestsResponse {
+  flaky_tests: FlakyTest[] | null;
+}
+
 export type ProviderType = 'ollama' | 'openai' | 'anthropic' | 'gemini' | 'azure_openai' | 'openai_compatible';
 
 export const PROVIDER_TYPES: { value: ProviderType; label: string }[] = [

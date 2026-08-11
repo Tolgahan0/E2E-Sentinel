@@ -303,7 +303,7 @@ func run(migrateOnly bool) error {
 		trigger := func(ctx context.Context, testCaseID, triggerType, triggeredBy, commitSHA string) (runs.TestRun, error) {
 			return httpserver.TriggerRun(ctx, deps, testCaseID, triggerType, triggeredBy, commitSHA)
 		}
-		go githubci.RunLoop(ctx, deps.Projects, deps.Runs, deps.Planning, deps.Secrets, githubci.NewClient(nil), trigger, cfg.GitHubCIPollInterval, logger)
+		go githubci.RunLoop(ctx, deps.Projects, deps.Runs, deps.Planning, deps.Secrets, githubci.NewPostgresPRTracker(pgPool), githubci.NewClient(nil), trigger, cfg.GitHubCIPollInterval, logger)
 		logger.Info().Dur("poll_interval", cfg.GitHubCIPollInterval).Msg("github CI polling enabled")
 	} else if cfg.GitHubCIEnabled {
 		logger.Info().Msg("github CI enabled (SENTINEL_GITHUB_CI_ENABLED=true) but SENTINEL_SECRET_ENCRYPTION_KEY is unset — a project's GitHub token can't be stored, so polling is disabled")
