@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -13,7 +16,9 @@ import (
 	"e2e-sentinel/apps/api/internal/audit"
 	"e2e-sentinel/apps/api/internal/bugreports"
 	"e2e-sentinel/apps/api/internal/fixproposals"
+	"e2e-sentinel/apps/api/internal/projects"
 	"e2e-sentinel/apps/api/internal/providers"
+	"e2e-sentinel/apps/api/internal/redaction"
 	"e2e-sentinel/apps/api/internal/webhooks"
 )
 
@@ -219,9 +224,11 @@ func generateProposalViaAI(ctx context.Context, deps Dependencies, bug bugreport
 		}
 	}
 
+	sourceContext := gatherSourceContext(ctx, deps, bug)
+
 	result, err := deps.Completer.Complete(ctx, provider, apiKey, providers.CompletionRequest{
 		SystemPrompt: fixGenerationSystemPrompt,
-		UserPrompt:   buildFixGenerationPrompt(bug),
+		UserPrompt:   buildFixGenerationPrompt(bug, sourceContext),
 		MaxTokens:    2048,
 	})
 	if err != nil {
@@ -239,25 +246,104 @@ func generateProposalViaAI(ctx context.Context, deps Dependencies, bug bugreport
 		return fixproposals.FixProposal{}, fmt.Errorf("provider produced an invalid diff: %w", err)
 	}
 
+	description := "Generated from bug evidence only (no repository source was read) — review carefully before applying."
+	assumptions := "The proposed change is based solely on the bug's captured evidence, not the actual repository source; it may not match the real file layout or content."
+	if sourceContext != "" {
+		description = "Generated from bug evidence plus the affected route/service's actual source file(s) — review carefully before applying."
+		assumptions = "The proposed change is based on the bug's captured evidence plus the affected route/service's real source content (redacted for secrets); it may still not reflect the full surrounding context."
+	}
+
 	return fixproposals.FixProposal{
 		ProjectID: bug.ProjectID, BugID: bug.ID, Title: "AI-proposed fix for: " + bug.Title,
-		Description:  "Generated from bug evidence only (no repository source was read) — review carefully before applying.",
+		Description:  description,
 		RiskLevel:    fixproposals.RiskMedium,
-		Assumptions:  "The proposed change is based solely on the bug's captured evidence, not the actual repository source; it may not match the real file layout or content.",
+		Assumptions:  assumptions,
 		FilesChanged: fixproposals.FilesChanged(changes), UnifiedDiff: diff,
 		RegressionTestIDs: []string{bug.TestCaseID},
 		AIProvider:        provider.Type, AIModel: provider.Model, GeneratedAt: time.Now(),
 	}, nil
 }
 
-const fixGenerationSystemPrompt = `You are an expert software engineer helping fix a bug found by an automated end-to-end test. You do NOT have access to the repository's source code — only the evidence below. Propose a best-effort unified diff patch. Respond with ONLY a single fenced code block starting with ` + "```diff" + ` containing a valid unified diff (---/+++ file headers, @@ hunk headers). If you cannot propose a concrete patch without seeing the source code, respond with a fenced code block containing only the line "# insufficient information to generate a patch" and nothing else.`
+const fixGenerationSystemPrompt = `You are an expert software engineer helping fix a bug found by an automated end-to-end test. You have the evidence below, plus — only if included — relevant source file excerpt(s) that the platform's dependency graph identified as implementing the affected route or service (already redacted for secrets/tokens/credentials). If no source excerpt is included below, you have no access to the repository's source code at all. Propose a best-effort unified diff patch. Respond with ONLY a single fenced code block starting with ` + "```diff" + ` containing a valid unified diff (---/+++ file headers, @@ hunk headers). If you cannot propose a concrete patch without seeing the source code, respond with a fenced code block containing only the line "# insufficient information to generate a patch" and nothing else.`
 
-func buildFixGenerationPrompt(bug bugreports.BugReport) string {
-	return fmt.Sprintf(
+func buildFixGenerationPrompt(bug bugreports.BugReport, sourceContext string) string {
+	prompt := fmt.Sprintf(
 		"Title: %s\nFailure type: %s\nSeverity: %s\nAffected route: %s\nAffected service: %s\nExpected: %s\nActual: %s\nError message: %s\nRoot cause hypothesis (unverified): %s\n",
 		bug.Title, bug.FailureType, bug.Severity, bug.AffectedRoute, bug.AffectedService,
 		bug.ExpectedResult, bug.ActualResult, bug.Evidence.ErrorMessage, bug.RootCauseHypothesis,
 	)
+	if sourceContext != "" {
+		prompt += "\nRelevant source file(s) (redacted for secrets):\n" + sourceContext
+	}
+	return prompt
+}
+
+// sourceContextMaxFiles bounds how many source files are ever read for
+// one fix proposal: the affected route's own file and, if different,
+// its serving service's file — never more, regardless of how many
+// Application Graph nodes happen to share a label.
+const sourceContextMaxFiles = 2
+
+// gatherSourceContext best-effort loads the source file(s) the
+// Application Graph already identifies as implementing bug's affected
+// route/service (internal/graph.Node.SourceReference, populated at
+// discovery time from real route/service extraction — never a guess),
+// redacts them, and renders them as labeled blocks for the AI prompt.
+// Returns "" (never an error) if the graph has no match, the project
+// can't be read, or every candidate file is missing/too large — the
+// AI-assisted path already has a well-tested no-context fallback (the
+// bug-evidence-only prompt), so any failure here just silently falls
+// back to it rather than blocking fix-proposal generation.
+func gatherSourceContext(ctx context.Context, deps Dependencies, bug bugreports.BugReport) string {
+	project, err := deps.Projects.Get(ctx, bug.ProjectID)
+	if err != nil {
+		return ""
+	}
+	nodes, _, err := deps.Graph.Get(ctx, bug.ProjectID)
+	if err != nil {
+		return ""
+	}
+
+	var relPaths []string
+	seen := map[string]bool{}
+	for _, label := range []string{bug.AffectedRoute, bug.AffectedService} {
+		if label == "" || len(relPaths) >= sourceContextMaxFiles {
+			continue
+		}
+		for _, n := range nodes {
+			if n.Label == label && n.SourceReference != "" && !seen[n.SourceReference] {
+				seen[n.SourceReference] = true
+				relPaths = append(relPaths, n.SourceReference)
+				break
+			}
+		}
+	}
+
+	var blocks []string
+	for _, relPath := range relPaths {
+		full := filepath.Join(project.RepositoryPath, relPath)
+		if !projects.WithinRoot(project.RepositoryPath, full) {
+			continue // never trust a join blindly, even though SourceReference is graph-derived, not user input
+		}
+		info, err := os.Stat(full)
+		if err != nil || info.IsDir() || !redaction.WithinSizeLimit(info.Size(), 0) {
+			continue
+		}
+		raw, err := os.ReadFile(full)
+		if err != nil {
+			continue
+		}
+		result := redaction.Redact(string(raw))
+		if len(result.Categories) > 0 {
+			deps.Logger.Info().Str("bug_id", bug.ID).Str("path", relPath).Any("categories", result.Categories).
+				Msg("fix generation: redacted content before sending to AI provider")
+		}
+		blocks = append(blocks, fmt.Sprintf("--- %s ---\n%s", relPath, result.Text))
+	}
+	if len(blocks) == 0 {
+		return ""
+	}
+	return strings.Join(blocks, "\n\n")
 }
 
 func handleGetFixProposal(deps Dependencies) http.HandlerFunc {

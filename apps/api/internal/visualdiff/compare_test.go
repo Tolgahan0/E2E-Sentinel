@@ -33,7 +33,7 @@ func solidPNG(t *testing.T, w, h int, c color.Color, patchX, patchY, patchW, pat
 func TestCompare_IdenticalImages_ZeroPercentChanged(t *testing.T) {
 	img := solidPNG(t, 20, 20, color.White, 0, 0, 0, 0, nil)
 
-	result, err := Compare(img, img)
+	result, err := Compare(img, img, DefaultColorDistanceThreshold)
 	if err != nil {
 		t.Fatalf("Compare() error = %v", err)
 	}
@@ -49,7 +49,7 @@ func TestCompare_PartialPatch_ExactPercentage(t *testing.T) {
 	baseline := solidPNG(t, 10, 10, color.White, 0, 0, 0, 0, nil)
 	current := solidPNG(t, 10, 10, color.White, 0, 0, 5, 2, color.Black)
 
-	result, err := Compare(baseline, current)
+	result, err := Compare(baseline, current, DefaultColorDistanceThreshold)
 	if err != nil {
 		t.Fatalf("Compare() error = %v", err)
 	}
@@ -78,7 +78,7 @@ func TestCompare_MinorNoiseBelowThreshold_NotCountedAsChanged(t *testing.T) {
 	nearWhite := color.RGBA{R: 254, G: 254, B: 254, A: 255}
 	current := solidPNG(t, 10, 10, nearWhite, 0, 0, 0, 0, nil)
 
-	result, err := Compare(baseline, current)
+	result, err := Compare(baseline, current, DefaultColorDistanceThreshold)
 	if err != nil {
 		t.Fatalf("Compare() error = %v", err)
 	}
@@ -87,11 +87,34 @@ func TestCompare_MinorNoiseBelowThreshold_NotCountedAsChanged(t *testing.T) {
 	}
 }
 
+func TestCompare_CustomThreshold_ChangesClassification(t *testing.T) {
+	baseline := solidPNG(t, 10, 10, color.White, 0, 0, 0, 0, nil)
+	// Exactly 20.0 RGB-distance from white (dr=20, dg=0, db=0).
+	shifted := color.RGBA{R: 235, G: 255, B: 255, A: 255}
+	current := solidPNG(t, 10, 10, shifted, 0, 0, 0, 0, nil)
+
+	strict, err := Compare(baseline, current, 15)
+	if err != nil {
+		t.Fatalf("Compare() error = %v", err)
+	}
+	if strict.PercentChanged != 100 {
+		t.Errorf("PercentChanged at threshold=15 = %v, want 100 (a distance-20 delta exceeds a threshold of 15)", strict.PercentChanged)
+	}
+
+	lenient, err := Compare(baseline, current, 25)
+	if err != nil {
+		t.Fatalf("Compare() error = %v", err)
+	}
+	if lenient.PercentChanged != 0 {
+		t.Errorf("PercentChanged at threshold=25 = %v, want 0 (a distance-20 delta is under a threshold of 25)", lenient.PercentChanged)
+	}
+}
+
 func TestCompare_MismatchedDimensions_NeverErrors(t *testing.T) {
 	baseline := solidPNG(t, 10, 10, color.White, 0, 0, 0, 0, nil)
 	current := solidPNG(t, 20, 10, color.White, 0, 0, 0, 0, nil)
 
-	result, err := Compare(baseline, current)
+	result, err := Compare(baseline, current, DefaultColorDistanceThreshold)
 	if err != nil {
 		t.Fatalf("Compare() error = %v, want no error for mismatched dimensions", err)
 	}
@@ -101,7 +124,7 @@ func TestCompare_MismatchedDimensions_NeverErrors(t *testing.T) {
 }
 
 func TestCompare_InvalidPNG_Errors(t *testing.T) {
-	if _, err := Compare([]byte("not a png"), []byte("not a png either")); err == nil {
+	if _, err := Compare([]byte("not a png"), []byte("not a png either"), DefaultColorDistanceThreshold); err == nil {
 		t.Fatal("Compare() error = nil, want an error for invalid PNG input")
 	}
 }

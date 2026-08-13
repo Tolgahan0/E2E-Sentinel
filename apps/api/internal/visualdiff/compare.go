@@ -9,11 +9,20 @@ import (
 	"math"
 )
 
-// colorDistanceThreshold is the minimum per-pixel RGB Euclidean
+// DefaultColorDistanceThreshold is the minimum per-pixel RGB Euclidean
 // distance (0 to ~441.7, sqrt(255^2*3)) for a pixel to count as
-// "changed" rather than anti-aliasing/compression noise. Not
-// user-configurable in v1 — see docs/VISUAL_REGRESSION.md.
-const colorDistanceThreshold = 30.0
+// "changed" rather than anti-aliasing/compression noise. Callers pass
+// this, or a project-specific override (projects.Project.VisualDiffThreshold
+// — see docs/VISUAL_REGRESSION.md), as Compare's threshold argument.
+// internal/projects intentionally duplicates this same 30.0 literal as
+// its own column default rather than importing this package — keep the
+// two in sync if this ever changes.
+const DefaultColorDistanceThreshold = 30.0
+
+// MaxColorDistance is the maximum possible per-pixel RGB Euclidean
+// distance (255·√3) — the upper bound any caller-supplied threshold
+// should ever be validated against.
+const MaxColorDistance = 441.7
 
 // Result is the outcome of comparing two screenshots.
 type Result struct {
@@ -26,10 +35,12 @@ type Result struct {
 }
 
 // Compare diffs baseline against current, both full PNG-encoded
-// screenshots. Mismatched dimensions never error — a layout change is
-// exactly the kind of thing this should catch, not crash on; the
-// non-overlapping region simply counts as fully changed.
-func Compare(baseline, current []byte) (Result, error) {
+// screenshots. A pixel counts as "changed" past threshold (typically
+// DefaultColorDistanceThreshold or a project's own override). Mismatched
+// dimensions never error — a layout change is exactly the kind of thing
+// this should catch, not crash on; the non-overlapping region simply
+// counts as fully changed.
+func Compare(baseline, current []byte, threshold float64) (Result, error) {
 	baseImg, err := png.Decode(bytes.NewReader(baseline))
 	if err != nil {
 		return Result{}, fmt.Errorf("visualdiff: decoding baseline screenshot: %w", err)
@@ -65,7 +76,7 @@ func Compare(baseline, current []byte) (Result, error) {
 
 			br, bg, bb, _ := baseImg.At(baseBounds.Min.X+x, baseBounds.Min.Y+y).RGBA()
 			cr, cg, cb, _ := curImg.At(curBounds.Min.X+x, curBounds.Min.Y+y).RGBA()
-			if colorDistance(br, bg, bb, cr, cg, cb) > colorDistanceThreshold {
+			if colorDistance(br, bg, bb, cr, cg, cb) > threshold {
 				changed++
 				diff.Set(x, y, color.RGBA{R: 255, A: 255})
 			} else {

@@ -103,6 +103,77 @@ function GitHubCIEditor({ project, onChanged }: { project: Project; onChanged: (
   );
 }
 
+// MAX_VISUAL_DIFF_THRESHOLD mirrors visualdiff.MaxColorDistance (255·√3,
+// the maximum possible per-pixel RGB distance) — the same bound the API
+// validates against.
+const MAX_VISUAL_DIFF_THRESHOLD = 441.7;
+
+function VisualDiffThresholdEditor({ project, onChanged }: { project: Project; onChanged: (updated: Project) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(String(project.visual_diff_threshold));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    const threshold = Number(value);
+    if (!Number.isFinite(threshold) || threshold < 0 || threshold > MAX_VISUAL_DIFF_THRESHOLD) {
+      setError(`must be between 0 and ${MAX_VISUAL_DIFF_THRESHOLD}`);
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    const result = await mutateJSON<Project>('PATCH', `/api/v1/projects/${project.id}/visual-diff-threshold`, { threshold });
+    setSaving(false);
+    if (result.ok && result.data) {
+      onChanged(result.data);
+      setEditing(false);
+    } else {
+      setError(result.error ?? 'request_failed');
+    }
+  }
+
+  if (!editing) {
+    return (
+      <button
+        onClick={() => setEditing(true)}
+        style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer', color: 'inherit' }}
+      >
+        {project.visual_diff_threshold}
+      </button>
+    );
+  }
+
+  return (
+    <span style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', minWidth: '8rem' }}>
+      <input
+        type="number"
+        min={0}
+        max={MAX_VISUAL_DIFF_THRESHOLD}
+        step={0.5}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        aria-label={`Visual diff threshold for ${project.name}`}
+      />
+      <span style={{ display: 'flex', gap: '0.4rem' }}>
+        <button onClick={save} disabled={saving}>
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button
+          onClick={() => {
+            setEditing(false);
+            setValue(String(project.visual_diff_threshold));
+            setError(null);
+          }}
+          disabled={saving}
+        >
+          Cancel
+        </button>
+      </span>
+      {error && <span className="sentinel-status-bad">{error}</span>}
+    </span>
+  );
+}
+
 function ClassificationSelect({
   env,
   onChanged,
@@ -250,6 +321,7 @@ export default function ProjectsPage() {
                 <th>Repository path</th>
                 <th>Environment</th>
                 <th>GitHub CI</th>
+                <th>Visual diff threshold</th>
                 <th>Discovery</th>
                 <th>Actions</th>
               </tr>
@@ -275,6 +347,12 @@ export default function ProjectsPage() {
                   </td>
                   <td>
                     <GitHubCIEditor
+                      project={p}
+                      onChanged={(updated) => setProjects((prev) => prev.map((proj) => (proj.id === updated.id ? updated : proj)))}
+                    />
+                  </td>
+                  <td>
+                    <VisualDiffThresholdEditor
                       project={p}
                       onChanged={(updated) => setProjects((prev) => prev.map((proj) => (proj.id === updated.id ? updated : proj)))}
                     />

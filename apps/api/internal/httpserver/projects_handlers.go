@@ -12,6 +12,7 @@ import (
 	"e2e-sentinel/apps/api/internal/audit"
 	"e2e-sentinel/apps/api/internal/environments"
 	"e2e-sentinel/apps/api/internal/projects"
+	"e2e-sentinel/apps/api/internal/visualdiff"
 )
 
 type projectResponse struct {
@@ -32,6 +33,9 @@ type projectResponse struct {
 	// providers.Provider.
 	GitHubRepo         string `json:"github_repo"`
 	GitHubCIConfigured bool   `json:"github_ci_configured"`
+	// VisualDiffThreshold is this project's internal/visualdiff.Compare
+	// sensitivity — see PATCH .../visual-diff-threshold.
+	VisualDiffThreshold float64 `json:"visual_diff_threshold"`
 }
 
 func toProjectResponse(p projects.Project) projectResponse {
@@ -48,6 +52,7 @@ func toProjectResponse(p projects.Project) projectResponse {
 		CreatedAt:        p.CreatedAt.Format(timeFormat),
 		UpdatedAt:        p.UpdatedAt.Format(timeFormat),
 		GitHubRepo:       p.GitHubRepo, GitHubCIConfigured: p.GitHubTokenSecretReferenceID != "",
+		VisualDiffThreshold: p.VisualDiffThreshold,
 	}
 }
 
@@ -305,6 +310,47 @@ func handleUpdateGitHubCI(deps Dependencies) http.HandlerFunc {
 			Actor: "user", Metadata: map[string]any{"github_repo": githubRepo, "github_ci_configured": secretReferenceID != ""},
 		}); err != nil {
 			deps.Logger.Error().Err(err).Msg("recording project.github_ci_updated audit event failed")
+		}
+
+		writeJSON(w, http.StatusOK, toProjectResponse(project))
+	}
+}
+
+func handleUpdateVisualDiffThreshold(deps Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		projectID := chi.URLParam(r, "projectID")
+
+		var body struct {
+			Threshold float64 `json:"threshold"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+			return
+		}
+		if body.Threshold < 0 || body.Threshold > visualdiff.MaxColorDistance {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error":  "invalid_threshold",
+				"detail": fmt.Sprintf("threshold must be between 0 and %v", visualdiff.MaxColorDistance),
+			})
+			return
+		}
+
+		project, err := deps.Projects.SetVisualDiffThreshold(r.Context(), projectID, body.Threshold)
+		if errors.Is(err, projects.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "project_not_found"})
+			return
+		}
+		if err != nil {
+			deps.Logger.Error().Err(err).Msg("updating visual-diff threshold failed")
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+
+		if err := deps.Audit.Record(r.Context(), audit.Event{
+			ActionType: "project.visual_diff_threshold_updated", ResourceType: "project", ResourceID: project.ID,
+			Actor: "user", Metadata: map[string]any{"threshold": body.Threshold},
+		}); err != nil {
+			deps.Logger.Error().Err(err).Msg("recording project.visual_diff_threshold_updated audit event failed")
 		}
 
 		writeJSON(w, http.StatusOK, toProjectResponse(project))

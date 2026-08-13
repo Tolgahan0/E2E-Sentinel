@@ -19,7 +19,7 @@ func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
 	return &PostgresStore{pool: pool}
 }
 
-const projectColumns = `id, name, slug, repository_path, repository_type, default_branch, discovery_status, current_mode, last_discovered_at, created_at, updated_at, github_repo, github_token_secret_reference_id, last_ci_commit_sha`
+const projectColumns = `id, name, slug, repository_path, repository_type, default_branch, discovery_status, current_mode, last_discovered_at, created_at, updated_at, github_repo, github_token_secret_reference_id, last_ci_commit_sha, visual_diff_threshold`
 
 func (s *PostgresStore) Create(ctx context.Context, p Project) (Project, error) {
 	row := s.pool.QueryRow(ctx, `
@@ -101,6 +101,18 @@ func (s *PostgresStore) SetGitHubCI(ctx context.Context, id, githubRepo, tokenSe
 	return p, err
 }
 
+func (s *PostgresStore) SetVisualDiffThreshold(ctx context.Context, id string, threshold float64) (Project, error) {
+	row := s.pool.QueryRow(ctx, `
+		UPDATE projects SET visual_diff_threshold = $2, updated_at = now() WHERE id = $1
+		RETURNING `+projectColumns, id, threshold)
+
+	p, err := scanProject(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Project{}, ErrNotFound
+	}
+	return p, err
+}
+
 func (s *PostgresStore) SetLastCICommitSHA(ctx context.Context, id, sha string) error {
 	tag, err := s.pool.Exec(ctx, `UPDATE projects SET last_ci_commit_sha = $2, updated_at = now() WHERE id = $1`, id, sha)
 	if err != nil {
@@ -167,7 +179,7 @@ type rowScanner interface {
 func scanProject(row rowScanner) (Project, error) {
 	var p Project
 	var tokenRef *string
-	err := row.Scan(&p.ID, &p.Name, &p.Slug, &p.RepositoryPath, &p.RepositoryType, &p.DefaultBranch, &p.DiscoveryStatus, &p.CurrentMode, &p.LastDiscoveredAt, &p.CreatedAt, &p.UpdatedAt, &p.GitHubRepo, &tokenRef, &p.LastCICommitSHA)
+	err := row.Scan(&p.ID, &p.Name, &p.Slug, &p.RepositoryPath, &p.RepositoryType, &p.DefaultBranch, &p.DiscoveryStatus, &p.CurrentMode, &p.LastDiscoveredAt, &p.CreatedAt, &p.UpdatedAt, &p.GitHubRepo, &tokenRef, &p.LastCICommitSHA, &p.VisualDiffThreshold)
 	if err != nil {
 		return Project{}, fmt.Errorf("projects: scanning row: %w", err)
 	}

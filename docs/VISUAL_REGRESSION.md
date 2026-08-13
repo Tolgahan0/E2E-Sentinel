@@ -33,15 +33,22 @@ that gets diffed against whatever the current baseline is.
   [docs/RUNNER_ISOLATION.md](RUNNER_ISOLATION.md)).
 - `internal/visualdiff.Compare` decodes both PNGs and measures the
   per-pixel RGB Euclidean distance. A pixel counts as "changed" past a
-  fixed distance threshold — small enough to tolerate anti-aliasing/
-  compression noise, not so small that font-rendering nondeterminism
-  between runs produces spurious diffs. **Known limitation**: this is
-  plain pixel comparison, not perceptual/SSIM-based — a 1px content
-  shift (e.g. from a slightly different font render) can register a
-  nonzero percentage even though nothing meaningfully changed. Treat a
-  very small percentage on an otherwise-unchanged page with that in
-  mind; a v2 could move to a perceptual metric if this proves noisy in
-  practice.
+  **per-project sensitivity threshold** — small enough by default to
+  tolerate anti-aliasing/compression noise, not so small that
+  font-rendering nondeterminism between runs produces spurious diffs.
+  Every project defaults to 30.0 (`projects.Project.VisualDiffThreshold`,
+  `visualdiff.DefaultColorDistanceThreshold`) and can be changed on the
+  *Projects* page or via `PATCH /api/v1/projects/{id}/visual-diff-threshold`
+  (body `{"threshold": <0-441.7>}`, 441.7 ≈ 255·√3 being the maximum
+  possible per-pixel RGB distance) — lower it to catch smaller visual
+  changes, raise it if a project's rendering is naturally noisier.
+  **Known limitation**: this is still plain pixel comparison, not
+  perceptual/SSIM-based, regardless of threshold — a 1px content shift
+  (e.g. from a slightly different font render) can register a nonzero
+  percentage even though nothing meaningfully changed. Treat a very
+  small percentage on an otherwise-unchanged page with that in mind; a
+  perceptual metric remains a possible future upgrade if this proves
+  noisy in practice (see "Not yet built" below).
 - Mismatched screenshot dimensions (a layout change) never error — the
   non-overlapping region simply counts as fully changed.
 - The result is a diff PNG: unchanged areas rendered as a dimmed
@@ -49,8 +56,8 @@ that gets diffed against whatever the current baseline is.
   pixels highlighted solid red — the same convention as Percy/reg-suit.
 - Pixel-identical (`0%` changed) never creates a review row — nothing
   to add to the queue.
-- Both the threshold and the RGB-distance method are fixed constants in
-  v1, not configurable per project/test case yet.
+- The threshold is configurable per project (above); the RGB-distance
+  comparison method itself is still fixed — see "Not yet built".
 
 ## What accept/ignore actually do
 
@@ -83,6 +90,6 @@ screenshot/diff bytes themselves are served through the exact same `GET
 
 ## Not yet built (deliberately, not silently dropped)
 
-- Per-project or per-test-case sensitivity (the distance threshold is a
-  fixed constant today).
+- Per-test-case sensitivity override (per-project is now configurable,
+  see above).
 - A perceptual/SSIM-based diff instead of plain RGB distance.

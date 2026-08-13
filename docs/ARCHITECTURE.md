@@ -503,11 +503,13 @@ Per spec §2.2 and §34, there is still no code path that:
   safeguards apply to a git-integration feature not yet built),
 - executes anything found inside a scanned repository — discovery only
   *reads* file names/contents to classify them, it never runs them,
-- reads repository source files to give an AI provider real code
-  context — Phase 8's AI-assisted fix generation prompts with only a
-  bug's already-curated evidence (see docs/FIX_PROPOSALS.md); a safe
-  repository-content pipeline (path allowlist + redaction, building on
-  Phase 6's internal/redaction) is reserved for later,
+- reads repository source **beyond what the Application Graph already
+  identifies as implicated in the bug at hand** — Phase 8's AI-assisted
+  fix generation now best-effort includes the affected route/service's
+  own source file(s) (via `graph.Node.SourceReference`), redacted
+  (Phase 6's `internal/redaction`) and size-capped, but it never reads
+  the rest of the repository, and always falls back to evidence-only
+  prompting when no graph match exists (see docs/FIX_PROPOSALS.md),
 - authenticates by anything other than local email/password — OIDC/SAML
   (spec §19) are architecturally accommodated (`auth.Store` is a plain
   interface) but not implemented,

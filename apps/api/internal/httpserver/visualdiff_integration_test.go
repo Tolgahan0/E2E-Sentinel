@@ -233,6 +233,94 @@ func TestVisualDiff_IgnoreLeavesBaselineUnchanged(t *testing.T) {
 	}
 }
 
+func setVisualDiffThreshold(t *testing.T, router http.Handler, projectID string, threshold float64) projectResponse {
+	t.Helper()
+	rec := doJSON(t, router, http.MethodPatch, "/api/v1/projects/"+projectID+"/visual-diff-threshold", map[string]any{"threshold": threshold})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PATCH visual-diff-threshold status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var project projectResponse
+	json.Unmarshal(rec.Body.Bytes(), &project)
+	return project
+}
+
+func TestVisualDiff_CustomLowerThresholdMakesSmallChangeRegister(t *testing.T) {
+	// A color exactly 20.0 RGB-distance from white — under the default
+	// threshold (30), so it normally would NOT register as a change.
+	nearWhite := color.RGBA{R: 235, G: 255, B: 255, A: 255}
+	fake := &fakeRunner{
+		executeFunc: func(context.Context, runs.RunInput) (*runs.RunResult, error) {
+			return &runs.RunResult{ExitCode: 0}, nil
+		},
+		artifacts: []runs.ArtifactFile{{Kind: artifacts.KindScreenshot, MimeType: "image/png", Data: solidScreenshot(t, color.White)}},
+	}
+	deps := newTestDeps(nil, nil)
+	deps.Runner = fake
+	router := NewRouter(deps)
+
+	projectID, testID := setUpPageProject(t, router)
+	runTestCaseWithScreenshot(t, router, testID) // establishes the white baseline
+
+	project := setVisualDiffThreshold(t, router, projectID, 10)
+	if project.VisualDiffThreshold != 10 {
+		t.Fatalf("VisualDiffThreshold = %v, want 10", project.VisualDiffThreshold)
+	}
+
+	fake.mu.Lock()
+	fake.artifacts = []runs.ArtifactFile{{Kind: artifacts.KindScreenshot, MimeType: "image/png", Data: solidScreenshot(t, nearWhite)}}
+	fake.mu.Unlock()
+	runTestCaseWithScreenshot(t, router, testID)
+
+	diffs := listProjectVisualDiffs(t, router, projectID)
+	if len(diffs) != 1 {
+		t.Fatalf("visual diffs after a distance-20 change at threshold=10 = %d, want 1", len(diffs))
+	}
+	if diffs[0].PercentChanged != 100 {
+		t.Errorf("PercentChanged = %v, want 100", diffs[0].PercentChanged)
+	}
+}
+
+func TestVisualDiff_DefaultThresholdToleratesSmallChange(t *testing.T) {
+	nearWhite := color.RGBA{R: 235, G: 255, B: 255, A: 255}
+	fake := &fakeRunner{
+		executeFunc: func(context.Context, runs.RunInput) (*runs.RunResult, error) {
+			return &runs.RunResult{ExitCode: 0}, nil
+		},
+		artifacts: []runs.ArtifactFile{{Kind: artifacts.KindScreenshot, MimeType: "image/png", Data: solidScreenshot(t, color.White)}},
+	}
+	deps := newTestDeps(nil, nil)
+	deps.Runner = fake
+	router := NewRouter(deps)
+
+	projectID, testID := setUpPageProject(t, router)
+	runTestCaseWithScreenshot(t, router, testID) // establishes the white baseline, default threshold (30) untouched
+
+	fake.mu.Lock()
+	fake.artifacts = []runs.ArtifactFile{{Kind: artifacts.KindScreenshot, MimeType: "image/png", Data: solidScreenshot(t, nearWhite)}}
+	fake.mu.Unlock()
+	runTestCaseWithScreenshot(t, router, testID)
+
+	diffs := listProjectVisualDiffs(t, router, projectID)
+	if len(diffs) != 0 {
+		t.Errorf("visual diffs after a distance-20 change at the default threshold = %d, want 0", len(diffs))
+	}
+}
+
+func TestUpdateVisualDiffThreshold_OutOfRangeReturns400(t *testing.T) {
+	router := NewRouter(newTestDeps(nil, nil))
+	projectID, _ := setUpPageProject(t, router)
+
+	rec := doJSON(t, router, http.MethodPatch, "/api/v1/projects/"+projectID+"/visual-diff-threshold", map[string]any{"threshold": -1})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 for a negative threshold, body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(t, router, http.MethodPatch, "/api/v1/projects/"+projectID+"/visual-diff-threshold", map[string]any{"threshold": 1000})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 for a threshold over the max, body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestGetVisualDiff_NotFound(t *testing.T) {
 	router := NewRouter(newTestDeps(nil, nil))
 	rec := doJSON(t, router, http.MethodGet, "/api/v1/visual-diffs/does-not-exist", nil)

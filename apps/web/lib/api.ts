@@ -53,6 +53,9 @@ export interface Project {
   // is stored; the token itself is never returned by the API.
   github_repo: string;
   github_ci_configured: boolean;
+  // Per-project sensitivity for internal/visualdiff.Compare (0-441.7,
+  // default 30) — see PATCH .../visual-diff-threshold.
+  visual_diff_threshold: number;
 }
 
 export interface ProjectsResponse {

@@ -41,6 +41,11 @@ type Project struct {
 	// lets a poll tick tell "nothing new" apart from "needs a run"
 	// without re-running on every tick.
 	LastCICommitSHA string
+	// VisualDiffThreshold is this project's per-pixel RGB-distance
+	// sensitivity for internal/visualdiff.Compare (0 to ~441.7). Defaults
+	// to visualdiff.DefaultColorDistanceThreshold (30.0) for every
+	// project — see docs/VISUAL_REGRESSION.md.
+	VisualDiffThreshold float64
 }
 
 const (
@@ -84,7 +89,15 @@ type Store interface {
 	// ListWithGitHubCI returns every project with a non-empty GitHubRepo
 	// — the working set internal/githubci.RunLoop polls each tick.
 	ListWithGitHubCI(ctx context.Context) ([]Project, error)
+	// SetVisualDiffThreshold sets a project's per-pixel RGB-distance
+	// sensitivity for internal/visualdiff.Compare.
+	SetVisualDiffThreshold(ctx context.Context, id string, threshold float64) (Project, error)
 }
+
+// DefaultVisualDiffThreshold mirrors visualdiff.DefaultColorDistanceThreshold
+// (30.0) — duplicated rather than imported so this foundational package
+// never depends on a feature package; keep the two literals in sync.
+const DefaultVisualDiffThreshold = 30.0
 
 var slugSanitizer = regexp.MustCompile(`[^a-z0-9]+`)
 

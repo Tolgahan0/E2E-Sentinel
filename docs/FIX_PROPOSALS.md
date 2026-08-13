@@ -19,25 +19,44 @@ connects a provider response directly to a filesystem write.
   must be routed to an enabled provider (`PATCH /providers/routing`,
   spec §16.4); the request 503s otherwise.
 
-### The AI path does not read repository source
+### The AI path can now read the affected route/service's real source
 
-This is a deliberate, documented scope limit, not an oversight: building
-a safe repository-content-to-AI pipeline (path allowlist, per-file size
-limit, redaction — the pieces `internal/redaction` already provides as
-building blocks, spec §16.5) and wiring it end-to-end is real additional
-work reserved for a later iteration. Today, the AI-assisted path prompts
-the routed provider with only the bug's already-curated evidence —
-title, failure type, severity, affected route/service, expected/actual
-result, error message, and the (explicitly labeled hypothesis) root
-cause. The model is asked to respond with only a fenced ` ```diff `
-block; if it can't propose something concrete without seeing the source,
-it's instructed to say so, and that response fails to parse as a diff —
-surfaced as a clear error rather than a fabricated patch.
+The AI-assisted path always prompts the routed provider with the bug's
+already-curated evidence — title, failure type, severity, affected
+route/service, expected/actual result, error message, and the
+(explicitly labeled hypothesis) root cause. On top of that, it now
+best-effort includes the actual source of the file(s) the Application
+Graph (Phase 3) already identifies as implementing the affected route
+or service: `graph.Node.SourceReference`, set at discovery time from
+real route/service extraction, never a guess. `bug.AffectedRoute` and
+`bug.AffectedService` are matched against the project's current graph
+node labels; up to two files (the route's own file, and its serving
+service's file if different) are read, run through
+`internal/redaction.Redact` (secrets/tokens/credentials/auth headers/
+cookies replaced with a fixed placeholder — spec §16.5), and appended to
+the prompt as labeled, redacted blocks. `internal/redaction.WithinSizeLimit`
+excludes any file over 200 KB rather than truncating it silently. Every
+file path is re-verified with `projects.WithinRoot` against the
+project's validated repository root before it's ever read — the same
+containment check every other filesystem-touching feature in this
+codebase already uses (`fixproposals/apply.go`, `fixproposals/workspace.go`)
+— even though `SourceReference` comes from the graph, not user input.
 
-Practically: an AI-generated proposal is a **best-effort sketch** that
-may reference the wrong file paths or content. The temporary-workspace
-step exists precisely to catch this before anyone wastes time reviewing
-a patch that doesn't even apply.
+None of this is required to succeed: no graph match, no readable file,
+or a file over the size limit all silently fall back to the
+evidence-only prompt — the same one this path has always sent — rather
+than blocking generation or returning an error. The model is asked to
+respond with only a fenced ` ```diff ` block; if it can't propose
+something concrete, it's instructed to say so, and that response fails
+to parse as a diff — surfaced as a clear error rather than a fabricated
+patch. The returned proposal's `description`/`assumptions` fields
+honestly say whether real source was actually included this time, so a
+reviewer never has to guess.
+
+Practically: an AI-generated proposal is still a **best-effort sketch**,
+especially when no source was available to include. The
+temporary-workspace step exists precisely to catch a patch that doesn't
+even apply before anyone wastes time reviewing it.
 
 ## Diff parsing and application — no shell-out
 

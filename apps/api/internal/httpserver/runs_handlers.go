@@ -361,7 +361,13 @@ func processVisualDiff(ctx context.Context, deps Dependencies, run runs.TestRun,
 		return
 	}
 
-	result, err := visualdiff.Compare(baselineData, screenshotData)
+	project, err := deps.Projects.Get(ctx, run.ProjectID)
+	if err != nil {
+		deps.Logger.Warn().Err(err).Str("run_id", run.ID).Msg("visual diff: getting project for threshold failed")
+		return
+	}
+
+	result, err := visualdiff.Compare(baselineData, screenshotData, project.VisualDiffThreshold)
 	if err != nil {
 		deps.Logger.Warn().Err(err).Str("run_id", run.ID).Msg("visual diff: comparing screenshots failed")
 		return

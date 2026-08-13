@@ -77,6 +77,46 @@ func TestMemoryStore_CreateGetList(t *testing.T) {
 	}
 }
 
+func TestMemoryStore_Create_DefaultsVisualDiffThreshold(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+
+	created, err := store.Create(ctx, Project{Name: "Routa", Slug: "routa", RepositoryPath: "/tmp/routa"})
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+	if created.VisualDiffThreshold != DefaultVisualDiffThreshold {
+		t.Errorf("VisualDiffThreshold = %v, want %v", created.VisualDiffThreshold, DefaultVisualDiffThreshold)
+	}
+}
+
+func TestMemoryStore_SetVisualDiffThreshold(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+
+	created, _ := store.Create(ctx, Project{Name: "Routa", Slug: "routa", RepositoryPath: "/tmp/routa"})
+
+	updated, err := store.SetVisualDiffThreshold(ctx, created.ID, 60.0)
+	if err != nil {
+		t.Fatalf("SetVisualDiffThreshold() error: %v", err)
+	}
+	if updated.VisualDiffThreshold != 60.0 {
+		t.Errorf("VisualDiffThreshold = %v, want 60", updated.VisualDiffThreshold)
+	}
+
+	got, err := store.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	if got.VisualDiffThreshold != 60.0 {
+		t.Errorf("Get().VisualDiffThreshold = %v, want 60 (persisted)", got.VisualDiffThreshold)
+	}
+
+	if _, err := store.SetVisualDiffThreshold(ctx, "does-not-exist", 60.0); !errors.Is(err, ErrNotFound) {
+		t.Errorf("SetVisualDiffThreshold(missing) = %v, want ErrNotFound", err)
+	}
+}
+
 func TestMemoryStore_UpdateNameAndDiscoveryStatus(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := context.Background()

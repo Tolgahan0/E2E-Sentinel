@@ -32,6 +32,9 @@ func (s *MemoryStore) Create(_ context.Context, p Project) (Project, error) {
 	if p.CurrentMode == "" {
 		p.CurrentMode = ModeObserve
 	}
+	if p.VisualDiffThreshold == 0 {
+		p.VisualDiffThreshold = DefaultVisualDiffThreshold
+	}
 	s.byID[p.ID] = p
 	return p, nil
 }
@@ -110,6 +113,19 @@ func (s *MemoryStore) SetLastCICommitSHA(_ context.Context, id, sha string) erro
 	p.UpdatedAt = time.Now()
 	s.byID[id] = p
 	return nil
+}
+
+func (s *MemoryStore) SetVisualDiffThreshold(_ context.Context, id string, threshold float64) (Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.byID[id]
+	if !ok {
+		return Project{}, ErrNotFound
+	}
+	p.VisualDiffThreshold = threshold
+	p.UpdatedAt = time.Now()
+	s.byID[id] = p
+	return p, nil
 }
 
 func (s *MemoryStore) ListWithGitHubCI(_ context.Context) ([]Project, error) {

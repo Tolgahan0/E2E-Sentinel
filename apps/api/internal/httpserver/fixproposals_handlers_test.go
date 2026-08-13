@@ -1,12 +1,17 @@
 package httpserver
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"e2e-sentinel/apps/api/internal/graph"
 )
 
 const validManualDiff = "--- a/main.go\n+++ b/main.go\n@@ -1,3 +1,3 @@\n package main\n \n-func old() {}\n+func new() {}\n"
@@ -139,6 +144,149 @@ func TestGenerateFixProposal_ViaAI_InvalidDiffFromModelReturns422(t *testing.T) 
 	rec := doJSON(t, router, http.MethodPost, "/api/v1/bugs/"+bugID+"/fix-proposal", nil)
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d, want 422, body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// fakeAICapturingRequest is fakeAI's shape (see
+// TestGenerateFixProposal_ViaAI_NeverAutoApproved) plus capturing the
+// raw request body it received, so a test can assert on exactly what
+// was sent to the "AI provider" — the only way to prove source context
+// actually reached the prompt (and that a secret in it didn't).
+func fakeAICapturingRequest(t *testing.T, capturedBody *string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf, _ := io.ReadAll(r.Body)
+		*capturedBody = string(buf)
+		content := "Here is a fix:\n\n```diff\n" + validManualDiff + "```\n"
+		payload, _ := json.Marshal(map[string]any{
+			"choices": []map[string]any{{"message": map[string]string{"content": content}}},
+		})
+		w.Write(payload)
+	}))
+}
+
+func routeAIFixGenerationToFake(t *testing.T, router http.Handler, fakeURL string) {
+	t.Helper()
+	createProvRec := doJSON(t, router, http.MethodPost, "/api/v1/providers", map[string]any{
+		"type": "openai", "name": "Test Provider", "base_url": fakeURL,
+	})
+	var provider providerResponse
+	json.Unmarshal(createProvRec.Body.Bytes(), &provider)
+	routeRec := doJSON(t, router, http.MethodPatch, "/api/v1/providers/routing", map[string]any{
+		"routes": map[string]string{"fix_generation": provider.ID},
+	})
+	if routeRec.Code != http.StatusOK {
+		t.Fatalf("routing status = %d, body=%s", routeRec.Code, routeRec.Body.String())
+	}
+}
+
+func getBug(t *testing.T, router http.Handler, bugID string) bugReportResponse {
+	t.Helper()
+	rec := doJSON(t, router, http.MethodGet, "/api/v1/bugs/"+bugID, nil)
+	var bug bugReportResponse
+	json.Unmarshal(rec.Body.Bytes(), &bug)
+	return bug
+}
+
+func TestGenerateFixProposal_ViaAI_IncludesGraphMatchedSourceRedactedForSecrets(t *testing.T) {
+	deps := newTestDeps(nil, nil)
+	router, projectDir, projectID, bugID := setUpBugForFixProposal(t, deps)
+	bug := getBug(t, router, bugID)
+	if bug.AffectedRoute == "" {
+		t.Fatal("expected the seeded bug to have a non-empty AffectedRoute")
+	}
+
+	const marker = "const sourceContextMarker = 'reached-the-prompt'"
+	const secret = "sk-secret-abc123"
+	mustWrite(t, filepath.Join(projectDir, "app", "health", "route.ts"),
+		marker+"\nconst API_KEY = \""+secret+"\";\n")
+
+	if err := deps.Graph.ReplaceGraph(context.Background(), projectID, []graph.Node{
+		{NodeType: "api", Label: bug.AffectedRoute, SourceReference: "app/health/route.ts", Confidence: graph.ConfidenceHigh},
+	}, nil); err != nil {
+		t.Fatalf("ReplaceGraph: %v", err)
+	}
+
+	var captured string
+	fakeAI := fakeAICapturingRequest(t, &captured)
+	defer fakeAI.Close()
+	routeAIFixGenerationToFake(t, router, fakeAI.URL)
+
+	rec := doJSON(t, router, http.MethodPost, "/api/v1/bugs/"+bugID+"/fix-proposal", nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	if !strings.Contains(captured, marker) {
+		t.Errorf("request sent to the AI provider did not contain the source file's content: %s", captured)
+	}
+	if strings.Contains(captured, secret) {
+		t.Errorf("request sent to the AI provider leaked the secret %q — redaction did not run: %s", secret, captured)
+	}
+
+	var fp fixProposalResponse
+	json.Unmarshal(rec.Body.Bytes(), &fp)
+	if !strings.Contains(fp.Assumptions, "real source content") {
+		t.Errorf("Assumptions = %q, want it to reflect that real source content was included", fp.Assumptions)
+	}
+}
+
+func TestGenerateFixProposal_ViaAI_NoGraphMatchFallsBackToEvidenceOnlyPrompt(t *testing.T) {
+	deps := newTestDeps(nil, nil)
+	router, _, projectID, bugID := setUpBugForFixProposal(t, deps)
+	// setUpBugForFixProposal already runs discovery, which builds a real
+	// Application Graph with a node for the route the bug is about — so
+	// to actually exercise "no match", the graph has to be cleared
+	// explicitly rather than just skipped.
+	if err := deps.Graph.ReplaceGraph(context.Background(), projectID, nil, nil); err != nil {
+		t.Fatalf("ReplaceGraph: %v", err)
+	}
+
+	var captured string
+	fakeAI := fakeAICapturingRequest(t, &captured)
+	defer fakeAI.Close()
+	routeAIFixGenerationToFake(t, router, fakeAI.URL)
+
+	rec := doJSON(t, router, http.MethodPost, "/api/v1/bugs/"+bugID+"/fix-proposal", nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(captured, "Relevant source file(s)") {
+		t.Errorf("request sent to the AI provider unexpectedly included a source-context section with no graph match: %s", captured)
+	}
+
+	var fp fixProposalResponse
+	json.Unmarshal(rec.Body.Bytes(), &fp)
+	if !strings.Contains(fp.Assumptions, "not the actual repository source") {
+		t.Errorf("Assumptions = %q, want the evidence-only wording when no source was included", fp.Assumptions)
+	}
+}
+
+func TestGenerateFixProposal_ViaAI_OversizedSourceFileExcluded(t *testing.T) {
+	deps := newTestDeps(nil, nil)
+	router, projectDir, projectID, bugID := setUpBugForFixProposal(t, deps)
+	bug := getBug(t, router, bugID)
+
+	huge := strings.Repeat("x", 250_000) // over redaction.DefaultMaxFileBytes (200_000)
+	mustWrite(t, filepath.Join(projectDir, "app", "health", "route.ts"), huge)
+
+	if err := deps.Graph.ReplaceGraph(context.Background(), projectID, []graph.Node{
+		{NodeType: "api", Label: bug.AffectedRoute, SourceReference: "app/health/route.ts", Confidence: graph.ConfidenceHigh},
+	}, nil); err != nil {
+		t.Fatalf("ReplaceGraph: %v", err)
+	}
+
+	var captured string
+	fakeAI := fakeAICapturingRequest(t, &captured)
+	defer fakeAI.Close()
+	routeAIFixGenerationToFake(t, router, fakeAI.URL)
+
+	rec := doJSON(t, router, http.MethodPost, "/api/v1/bugs/"+bugID+"/fix-proposal", nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(captured, huge) {
+		t.Error("an oversized source file was included in the AI prompt despite exceeding the size limit")
 	}
 }
 
